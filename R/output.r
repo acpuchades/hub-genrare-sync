@@ -46,4 +46,28 @@ output_consent <- consents |>
     ci_update = pmax(fecha_ci, fecha_retirada_ci),
   )
 
+output_personalinformation <- consents |>
+  left_join(
+    ufela_pacientes |>
+      left_join(ufela_seguimiento, by = "pid") |>
+      select(nhc, cip, fecha_ultima_visita, exitus, fecha_exitus),
+    by = "nhc"
+  ) |>
+  filter(!is.na(fecha_ci) | exitus | !is.na(fecha_exitus)) |>
+  transmute(
+    id_paciente = nhc,
+    pat_mail = email,
+    nhc = cip,
+    pat_referred = NA,
+    hosp_refer_reason = NA,
+    pat_derived = NA,
+    hosp_deriv_reason = NA,
+    pat_ref_hosp_follow = case_when(
+      !is.na(fecha_exitus) ~ 0,
+      !is.na(fecha_perdida_seguimiento) ~ 0,
+      (fecha_ultima_visita - today()) <= dyears(1) ~ 1,
+      TRUE ~ 98
+    )
+  )
+
   )
