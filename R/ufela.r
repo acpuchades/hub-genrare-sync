@@ -1,5 +1,6 @@
 library(dplyr)
 library(tibble)
+library(tidyr)
 
 ufela_db_path <- here::here('data', 'formulario_2025-10-10.sqlite')
 ufela_db = DBI::dbConnect(RSQLite::SQLite(), ufela_db_path)
@@ -18,7 +19,11 @@ ufela_clinica = DBI::dbGetQuery(ufela_db, "SELECT * FROM datos_clinicos") |>
   rows_update(tibble(pid = "9342fe7c-d949-11e9-842a-ebf9c1d8fdac", fecha_visita_datos_clinicos = "26-01-2016"), by = "pid") |>
   rows_update(tibble(pid = "cd45be9a-fddb-11ef-beed-edbe42534d56", fecha_inicio_riluzol = "11-04-2023"), by = "pid") |>
   rows_update(tibble(pid = "ebf7ca94-7397-11ec-803e-e338475c84d8", fecha_diagnostico_ELA = "03-01-2022"), by = "pid") |>
-  mutate(across(starts_with("fecha_"), lubridate::dmy))
+  mutate(
+    across(starts_with("fecha_"), lubridate::dmy),
+    across(starts_with("historia_familiar_"), ~case_match(.x, "Sí" ~ TRUE, "No" ~ FALSE)),
+    across(fumador, ~na_if(.x, "NS/NC")),
+  )
 
 ufela_alsfrs = DBI::dbGetQuery(ufela_db, "SELECT * FROM esc_val_ela") |>
   rename(fecha_visita = fecha_visita_esc_val_ela) |>
@@ -82,5 +87,16 @@ ufela_nutri <- DBI::dbGetQuery(ufela_db, "SELECT * FROM datos_antro") |>
     estatura = if_else(estatura |> between(1, 2), estatura * 100, estatura),
     imc_actual = coalesce(round(peso / (estatura/100)^2, digits=1), imc_actual),
   )
+
+ufela_visitas <- bind_rows(
+  ufela_alsfrs |> select(pid, fecha_visita),
+  ufela_respi |> select(pid, fecha_visita),
+  ufela_nutri |> select(pid, fecha_visita),
+) |>
+  drop_na() |>
+  distinct()
+
+ufela_seguimiento <- ufela_visitas |>
+  summarize(fecha_ultima_visita = max(fecha_visita, na.rm = TRUE), .by = pid)
 
 DBI::dbDisconnect(ufela_db)

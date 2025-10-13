@@ -25,4 +25,25 @@ output_status <- consents |>
     seed_project = if_else(!is.na(seed_als), "Yes", "No")
   )
 
+output_consent <- consents |>
+  filter(!is.na(fecha_ci)) |>
+  transmute(
+    id_paciente = nhc,
+    ci = if_else(!is.na(fecha_ci), "Yes", "No"),
+    ci_type = 1, # Adult
+    ci_date = fecha_ci,
+    ci_version = 6,
+    ci_options__1 = 1,
+    ci_options__2 = if_else(comparte_con_grupos, 1, NA),
+    ci_options__3 = if_else(comparte_con_registros, 1, NA),
+    ci_options__4 = if_else(consiente_relacionados, 1, NA),
+    ci_opt_pers_data__0 = if_else(!consiente_contacto & is.na(email), 1, NA),
+    ci_opt_pers_data__1 = if_else(!consiente_contacto & !is.na(email), 1, NA),
+    ci_opt_pers_data__2 = if_else(consiente_contacto & !is.na(email), 1, NA),
+    ci_options_assays__0 = if_else(!interesado_ensayos, 1, NA),
+    ci_options_assays__1 = if_else(interesado_ensayos, 1, NA),
+    ci_date_remove = fecha_retirada_ci,
+    ci_update = pmax(fecha_ci, fecha_retirada_ci),
+  )
+
   )
