@@ -11,6 +11,7 @@ ufela_pacientes = DBI::dbGetQuery(ufela_db, "SELECT * FROM pacientes") |>
     across(nhc, as.integer),
     across(starts_with("fecha_"), lubridate::dmy),
     across(ends_with("_datetime"), lubridate::ymd_hms),
+    across(exitus, ~case_match(.x, "Sí" ~ TRUE, "No" ~ FALSE)),
   )
 
 ufela_clinica = DBI::dbGetQuery(ufela_db, "SELECT * FROM datos_clinicos") |>
