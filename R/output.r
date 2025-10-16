@@ -333,10 +333,58 @@ output_clinicaldata <- output_patient_ids |>
     niv_22h_date = fecha_vmni_22h,
     gast_carrier_ind = if_else(!is.na(fecha_indicacion_gastrostomia), 1, 0),
     gast_ind_date = fecha_indicacion_gastrostomia,
-    alsfrs_data = if_else(alsfrs_data_available, 1, 0),
-    cognitive_data = if_else(ecas_data_available, 1, 0),
-    kings_data = if_else(kings_data_available, 1, 0),
-    eq_5d_5l_data = if_else(eq5_data_available, 1, 0),
+    alsfrs_data = if_else(alsfrs_data_available, 1, 0) |> replace_na(0),
+    cognitive_data = if_else(ecas_data_available, 1, 0) |> replace_na(0),
+    kings_data = if_else(kings_data_available, 1, 0) |> replace_na(0),
+    eq_5d_5l_data = if_else(eq5_data_available, 1, 0) |> replace_na(0),
     cgic_data = 0,
     pgic_data = 0,
+  )
+
+output_diagnosis <- output_patient_ids |>
+  left_join(
+    ufela_pacientes |> select(nhc, pid, exitus, fecha_exitus),
+    by = "nhc"
+  ) |>
+  left_join(
+    ufela_clinica |> select(
+      pid, fecha_inicio_clinica, fecha_diagnostico_ELA,
+      fenotipo_al_diagnostico, fenotipo_al_diagnostico_otro,
+      fenotipo_al_exitus, fenotipo_al_exitus_otro,
+      starts_with("resultado_estudio_"),
+    ),
+    by = "pid"
+  ) |>
+  left_join(
+    ufela_respi |> summarize(
+      fvc_data_available = any(!is.na(fvc_sentado)),
+      adv_resp_data_available = TRUE,
+      .by = pid,
+    ),
+    by = "pid"
+  ) |>
+  transmute(
+    record_id,
+    initial_diagnosis = parse_phenotype_information(fenotipo_al_diagnostico, fenotipo_al_diagnostico_otro),
+    date_diagnosis = fecha_diagnostico_ELA,
+    final_diagnosis = case_when(
+      initial_diagnosis %in% c(1, 4) ~ 1,
+      initial_diagnosis %in% 2:3 ~ if_else(
+        exitus & (fecha_exitus - fecha_inicio_clinica) < dyears(4),
+        1, parse_phenotype_information(fenotipo_al_exitus, fenotipo_al_exitus_otro)
+      )
+    ),
+    eer_category = NA,
+    gold_coast_crit_yn = if_else(initial_diagnosis %in% c(1, 3), 1, NA),
+    fvc_dic = if_else(fvc_data_available, 1, 0) |> replace_na(0),
+    respiratory_data = if_else(adv_resp_data_available, 1, 0) |> replace_na(0),
+    nfl_data = 98,
+    other_liquid_biomarkers = 98,
+    blood_analysis = 98,
+    emg = 98,
+    tms = 0,
+    pet = 0,
+    rm = 98,
+    genetic_data = !is.na(resultado_estudio_c9) | !is.na(resultado_estudio_sod1),
+    samples_data = 98,
   )
