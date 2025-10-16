@@ -55,7 +55,8 @@ ufela_alsfrs = DBI::dbGetQuery(ufela_db, "SELECT * FROM esc_val_ela") |>
       breathing <- (disnea <= 1) | (insuficiencia_respiratoria <= 2)
       movement + swallowing + communication + breathing
     },
-  )
+  ) |>
+  arrange(pid, fecha_visita)
 
 ufela_respi <- DBI::dbGetQuery(ufela_db, "SELECT * FROM fun_res") |>
   rename(fecha_visita = fecha_visita_fun_res) |>
@@ -77,7 +78,8 @@ ufela_respi <- DBI::dbGetQuery(ufela_db, "SELECT * FROM fun_res") |>
       ph_sangre_arterial |> between(7, 8) ~ ph_sangre_arterial,
       TRUE ~ NA_real_
     ),
-  )
+  ) |>
+  arrange(pid, fecha_visita)
 
 ufela_nutri <- DBI::dbGetQuery(ufela_db, "SELECT * FROM datos_antro") |>
   rename(fecha_visita = fecha_visita_datos_antro) |>
@@ -86,7 +88,8 @@ ufela_nutri <- DBI::dbGetQuery(ufela_db, "SELECT * FROM datos_antro") |>
     across(c(peso, peso_premorbido, estatura, imc_actual), as.numeric),
     estatura = if_else(estatura |> between(1, 2), estatura * 100, estatura),
     imc_actual = coalesce(round(peso / (estatura/100)^2, digits=1), imc_actual),
-  )
+  ) |>
+  arrange(pid, fecha_visita)
 
 ufela_visitas <- bind_rows(
   ufela_alsfrs |> select(pid, fecha_visita),
@@ -94,7 +97,8 @@ ufela_visitas <- bind_rows(
   ufela_nutri |> select(pid, fecha_visita),
 ) |>
   drop_na() |>
-  distinct()
+  distinct() |>
+  arrange(pid, fecha_visita)
 
 ufela_seguimiento <- ufela_visitas |>
   summarize(fecha_ultima_visita = max(fecha_visita, na.rm = TRUE), .by = pid)

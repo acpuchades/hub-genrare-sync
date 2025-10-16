@@ -1,9 +1,51 @@
 library(dplyr)
+library(stringr)
 library(lubridate)
 
 source(here::here("R", "consents.r"))
+source(here::here("R", "precision.r"))
 source(here::here("R", "ufela.r"))
 
+parse_phenotype_information <- function(phenotype, phenotype_other, als=1, umn=2, lmn=3, fosmn=4) {
+  case_match(phenotype,
+      "ELA Espinal" ~ als,
+      "ELA Bulbar" ~ als,
+      "ELA Respiratoria" ~ als,
+      "Monomiélica" ~ als,
+      "Pseudopolineurítica" ~ als,
+      "Hemipléjica (Mills)" ~ als,
+      "Parálisis bulbar progresiva" ~ als,
+      "Esclerosis Lateral Primaria (ELP)" ~ umn,
+      "Atrofia Muscular Progresiva (AMP)" ~ lmn,
+      "Otro" ~ case_match(phenotype_other |> str_to_upper(),
+        "ELA ESPINAL-DLFT" ~ als,
+        "ELA ESPINAL-DLFT-PK" ~ als,
+        "ELA BULBAR-DLFT" ~ als,
+        "ELA BULBAR-DEMENCIA" ~ als,
+        "ELA ESPINAL-PARKINSONISMO" ~ als,
+        "ELA BULBAR +/- DLFT" ~ als,
+        "ELA ESPINAL POSIBLE" ~ als,
+        "ELA ESPINAL VS HIPOPARATIROIDISMO" ~ als,
+        "ELA  EXPANSION C9ORF72" ~ als,
+        "ELA FAMILIAR" ~ als,
+        "ELA GENERALIZADA" ~ als,
+        "ELA INICIO RESPIRATORIO" ~ als,
+        "ENM 1+2" ~ als,
+        "ELADFT" ~ als,
+        "ELA+PARKINSONISMO" ~ als,
+        "ELA-DFT" ~ als,
+        "ESPINAL-DLFT-PK" ~ als,
+        "PSEUDOPOLIRRADICULAR" ~ als,
+        "MN Y PK" ~ als,
+        "PBP" ~ als,
+        "ELP VS HSP" ~ umn,
+        "MALALTIA SEGONA MOTONEURONA" ~ lmn,
+        "FORMA DIFUSA DE SEGUNDA MOTONEURONA ASOCIADA A ANTI-GM1" ~ lmn,
+        "SEGUNDA MOTONEURONA DIFUSA" ~ lmn,
+        "FOSMN" ~ fosmn,
+      )
+    )
+}
 
 redcap_site_id <- "1234"
 
@@ -182,4 +224,119 @@ output_demographics <- output_patient_ids |>
     incapacity_type = 98,
     disability = coalesce(if_else(situacion_laboral_actual == 7, NA, 0), 98),
     previous_jobs = 0,
+  )
+
+output_clinicaldata <- output_patient_ids |>
+  left_join(ufela_pacientes |> select(nhc, pid), by = "nhc") |>
+  left_join(
+    ufela_clinica |> select(
+      pid, fecha_inicio_clinica, fecha_diagnostico_ELA,
+      fenotipo_al_diagnostico, fenotipo_al_diagnostico_otro
+    ),
+    by = "pid"
+  ) |>
+  left_join(
+    ufela_nutri |> select(
+      pid, fecha_basal_nutri = "fecha_visita", estatura, peso, imc_actual, peso_premorbido, fecha_peso_premorbido
+    ),
+    by = join_by(pid, closest(fecha_diagnostico_ELA <= fecha_basal_nutri))
+  ) |>
+  left_join(
+    suppressWarnings(ufela_alsfrs |> summarize(
+      alsfrs_data_available = any(!is.na(total)),
+      kings_data_available = any(!is.na(kings)),
+      fecha_perdida_lenguaje = pick(fecha_visita, lenguaje) |>
+        filter(lenguaje == 0) |>
+        pull(fecha_visita) |>
+        min(na.rm = TRUE) |>
+        na_if(as_date(Inf)),
+      fecha_perdida_deambulacion = pick(fecha_visita, caminar) |>
+        filter(caminar <= 1) |>
+        pull(fecha_visita) |>
+        min(na.rm = TRUE) |>
+        na_if(as_date(Inf)),
+      fecha_vmni_22h = pick(fecha_visita, insuficiencia_respiratoria) |>
+        filter(insuficiencia_respiratoria <= 1) |>
+        pull(fecha_visita) |> 
+        min(na.rm = TRUE) |>
+        na_if(as_date(Inf)),
+      fecha_iot = pick(fecha_visita, insuficiencia_respiratoria) |>
+        drop_na() |>
+        filter(
+          insuficiencia_respiratoria == 0,
+          last(insuficiencia_respiratoria == 0)
+        ) |>
+        pull(fecha_visita) |>
+        min(na.rm = TRUE) |>
+        na_if(as_date(Inf)),
+      .by = pid
+    )),
+    by = "pid"
+  ) |>
+  left_join(
+    suppressWarnings(ufela_respi |> summarize(
+      fecha_indicacion_vmni = min(fecha_indicacion_vmni, na.rm = TRUE) |> na_if(as_date(Inf)),
+      .by = pid
+    )),
+    by = "pid"
+  ) |>
+  left_join(
+    suppressWarnings(ufela_nutri |> summarize(
+      fecha_indicacion_gastrostomia = min(fecha_indicacion_peg, na.rm = TRUE) |> na_if(as_date(Inf)),
+      .by = "pid"
+    )),
+    by = "pid"
+  ) |>
+  left_join(
+    pals_ecas |> summarize(
+      ecas_data_available = any(!is.na(fecha)),
+      .by = "nhc"
+    ),
+    by = "nhc"
+  ) |>
+  left_join(
+    pals_eq5 |> summarize(
+      eq5_data_available = any(!is.na(fecha)),
+      .by = "nhc"
+    ),
+    by = "nhc"
+  ) |>
+  transmute(
+    record_id,
+    date_clinical_onset = fecha_inicio_clinica,
+    simmetry = NA,
+    laterality_onset = NA,
+    als_symp_bulbar__3 = if_else(fenotipo_al_diagnostico %in% c("ELA Bulbar", "Parálisis bulbar progresiva"), 1, 0),
+    als_symp_spinal__6 = if_else(fenotipo_al_diagnostico == "Flail arm", 1, 0),
+    als_symp_spinal__7 = if_else(fenotipo_al_diagnostico == "Flail leg", 1, 0),
+    als_symp_resp__1 = if_else(fenotipo_al_diagnostico == "ELA respiratoria", 1, 0),
+    # orpha_code,
+    als_symp_other_old = fenotipo_al_diagnostico,
+    height = estatura,
+    weight_at_diagnosis = peso,
+    weight_reference = peso_premorbido,
+    weight_reference_date = fecha_peso_premorbido,
+    metabolic = 0,
+    vital_signs = 0,
+    clinical_phenotype = parse_phenotype_information(fenotipo_al_diagnostico, fenotipo_al_diagnostico_otro, fosmn = NA),
+    strength = 0,
+    neuromus_data = 0,
+    speech_loss = if_else(!is.na(fecha_perdida_lenguaje), 1, 0),
+    speech_loss_date = fecha_perdida_lenguaje,
+    ambulation_loss = if_else(!is.na(fecha_perdida_deambulacion), 1, 0),
+    ambulation_loss_date = fecha_perdida_deambulacion,
+    tracheostomy_ind = if_else(!is.na(fecha_iot), 1, 0),
+    tracheostomy_ind_date = fecha_iot,
+    niv_indicated_date = fecha_indicacion_vmni,
+    niv_indicated = if_else(!is.na(fecha_indicacion_vmni), 1, 0),
+    niv_22h = if_else(!is.na(fecha_vmni_22h), 1, 0),
+    niv_22h_date = fecha_vmni_22h,
+    gast_carrier_ind = if_else(!is.na(fecha_indicacion_gastrostomia), 1, 0),
+    gast_ind_date = fecha_indicacion_gastrostomia,
+    alsfrs_data = if_else(alsfrs_data_available, 1, 0),
+    cognitive_data = if_else(ecas_data_available, 1, 0),
+    kings_data = if_else(kings_data_available, 1, 0),
+    eq_5d_5l_data = if_else(eq5_data_available, 1, 0),
+    cgic_data = 0,
+    pgic_data = 0,
   )
