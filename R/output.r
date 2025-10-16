@@ -4,13 +4,41 @@ library(lubridate)
 source(here::here("R", "consents.r"))
 source(here::here("R", "ufela.r"))
 
-output_status <- consents |>
+
+redcap_site_id <- "1234"
+
+output_patients_ci <- consents |>
+  filter(!is.na(fecha_ci)) |>
+  select(nhc) |>
+  drop_na()
+
+output_patients_dead <- ufela_pacientes |>
+  filter(exitus | !is.na(fecha_exitus)) |>
+  left_join(ufela_clinica |> select(pid, starts_with("fenotipo_")), by = "pid") |>
+  filter(fenotipo_al_diagnostico != "Otro" | !str_detect(fenotipo_al_diagnostico_otro,
+    "AME|ATAXIA|ATROFIA MUSCULAR ESPINAL|FEWDON|IBP|KENNEDY|MG|NO ELA|PARAPARESIA|POSTPOLIO"
+  )) |>
+  select(nhc) |>
+  drop_na()
+
+output_patient_ids <- output_patients_ci |>
+  full_join(output_patients_dead, by = "nhc")
+
+output_patient_ids_allocated <- tibble()
+
+output_patient_ids_unallocated <- output_patient_ids |>
+  mutate(record_id = str_glue("{redcap_site_id}-{row_number()}"))
+
+output_patient_ids <- output_patient_ids_allocated |>
+  bind_rows(output_patient_ids_unallocated)
+
+output_status <- output_patient_ids |>
+  left_join(consents, by = "nhc") |>
   inner_join(ufela_pacientes |> select(nhc, cip, exitus, fecha_exitus), by = "nhc") |>
-  filter(!is.na(fecha_ci) | exitus | !is.na(fecha_exitus)) |>
   transmute(
-    id_paciente = nhc,
+    record_id,
     ci_date_entry = fecha_ci,
-    status = dplyr::case_when(
+    status = case_when(
       exitus | !is.na(fecha_exitus) ~ 0, # Deceased
       !is.na(fecha_perdida_seguimiento) ~ 2, # Lost follow-up
       !is.na(fecha_retirada_ci) ~ 3, # Withdraws participation
@@ -25,10 +53,10 @@ output_status <- consents |>
     seed_project = if_else(!is.na(seed_als), "Yes", "No")
   )
 
-output_consent <- consents |>
-  filter(!is.na(fecha_ci)) |>
+output_consent <- output_patient_ids |>
+  inner_join(consents, by = "nhc") |>
   transmute(
-    id_paciente = nhc,
+    record_id,
     ci = if_else(!is.na(fecha_ci), "Yes", "No"),
     ci_type = 1, # Adult
     ci_date = fecha_ci,
@@ -46,16 +74,19 @@ output_consent <- consents |>
     ci_update = pmax(fecha_ci, fecha_retirada_ci),
   )
 
-output_personalinformation <- consents |>
+output_personalinformation <- output_patient_ids |>
+  left_join(
+    consents |> select(nhc, email, fecha_perdida_seguimiento),
+    by = "nhc"
+  ) |>
   left_join(
     ufela_pacientes |>
       left_join(ufela_seguimiento, by = "pid") |>
       select(nhc, cip, fecha_ultima_visita, exitus, fecha_exitus),
     by = "nhc"
   ) |>
-  filter(!is.na(fecha_ci) | exitus | !is.na(fecha_exitus)) |>
   transmute(
-    id_paciente = nhc,
+    record_id,
     pat_mail = email,
     nhc = cip,
     pat_referred = NA,
@@ -70,7 +101,7 @@ output_personalinformation <- consents |>
     )
   )
 
-output_demographics <- consents |>
+output_demographics <- output_patient_ids |>
   left_join(
     ufela_pacientes |> select(
       pid, nhc, sexo, fecha_nacimiento, provincia_nacimiento,
@@ -81,6 +112,7 @@ output_demographics <- consents |>
   ) |>
   left_join(ufela_clinica |> select(pid, fumador, starts_with("historia_familiar_")), by = "pid") |>
   transmute(
+    record_id,
     family_history_dic = if_else(
       historia_familiar_alzheimer | historia_familiar_parkinson | historia_familiar_motoneurona,
       1, 0
