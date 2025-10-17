@@ -506,3 +506,19 @@ output_eq5d5l <- output_patient_ids |>
     anxiety = ansiedad_depresion,
     health_status = eva
   )
+
+output_fvcinfo <- output_patient_ids |>
+  inner_join(
+    ufela_respi |>
+      select(pid, fecha_visita, starts_with("fvc_")) |>
+      filter(if_any(starts_with("fvc_"), ~!is.na(.))),
+    by = "pid", relationship = "one-to-many"
+  ) |>
+  transmute(
+    record_id,
+    fvc_date = fecha_visita,
+    fvc_basal_perc = fvc_sentado,
+    fvc_basal_ml = fvc_sentado_absoluto,
+    fvc_decub_perc = fvc_estirado,
+    fvc_decub_ml = fvc_estirado_absoluto,
+  )
