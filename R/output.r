@@ -533,3 +533,15 @@ output_alsfrs <- output_patient_ids |>
     alsfrs_resp_failure__1 = if_else(insuficiencia_respiratoria == 1, 1, 0),
     alsfrs_resp_failure__0 = if_else(insuficiencia_respiratoria == 0, 1, 0),
   )
+
+output_kings <- output_patient_ids |>
+  left_join(
+    ufela_alsfrs |> select(pid, fecha_visita, kings),
+    by = "pid", relationship = "one-to-many"
+  ) |>
+  drop_na(fecha_visita, kings) |>
+  transmute(
+    record_id, 
+    kings_date = fecha_visita,
+    kings_total = kings
+  )
