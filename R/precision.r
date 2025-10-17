@@ -4,7 +4,13 @@ pals_patients <- readxl::read_excel(pals_info_path, sheet = "Pacientes") |>
   janitor::clean_names()
 
 pals_ecas <- readxl::read_excel(pals_info_path, sheet = "ECAS") |>
-  janitor::clean_names()
+  janitor::clean_names() |>
+  arrange(pals_id, fecha)
+
+pals_alsftdq <- readxl::read_excel(pals_info_path, sheet = "ALS-FTD-Q") |>
+  janitor::clean_names() |>
+  arrange(pals_id, fecha)
 
 pals_eq5 <- readxl::read_excel(pals_info_path, sheet = "EQ-5D-5L") |>
-  janitor::clean_names()
+  janitor::clean_names() |>
+  arrange(pals_id, fecha)

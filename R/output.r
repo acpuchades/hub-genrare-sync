@@ -561,3 +561,57 @@ output_weightandbmi <- output_patient_ids |>
     weight_current_date = fecha_visita,
     weight_current = peso
   )
+
+output_cognitiveassessment <- output_patient_ids |>
+  inner_join(pals_ecas, by = "nhc", relationship = "one-to-many") |>
+  full_join(
+    pals_alsftdq |> rename(alsftdq_total = total),
+    by = c("nhc", "pals_id", "fecha")
+  ) |>
+  drop_na(record_id, fecha) |>
+  transmute(
+    record_id,
+    cognitive_date = fecha,
+
+    # ECAS
+    nps_cognitive_test__1 = if_else(version != "-", 1, 0),
+    ecas_version = case_match(version, "A" ~ 1, "B" ~ 2, "C" ~ 3),
+    ecas_modality = NA,
+    ecas_language_naming = nombrar,
+    ecas_language_comprehension = comprension,
+    ecas_memory_immediate = recuerdo,
+    ecas_language_spelling = deletreo,
+    ecas_fluency_letter_p = fluidez_p,
+    ecas_verbal_fluency_index = NA,
+    ecas_executive_reverse_digits = secuencia,
+    ecas_executive_alternation = alternancia,
+    ecas_fluency_letter_t = fluidez_t,
+    ecas_visuospatial_dots = puntos,
+    ecas_visuospatial_cubes = cubos,
+    ecas_visuospatial_numbers = numeros,
+    ecas_executive_sentences = frases,
+    ecas_social_cognition = social,
+    ecas_memory_delayed_recall = retencion,
+    ecas_memory_delayed_recognition = reconocimiento,
+    ecas_language_total_man = lenguaje,
+    ecas_verbal_fluency_total_man = fluidez,
+    ecas_executive_total_man = ejecutiva,
+    ecas_memory_total_man = memoria,
+    ecas_visuospatial_total_man = visuoespacial,
+    ecas_als_specific_man = ela_e,
+    ecas_als_spe_dic_man = resultado_ela_e |> na_if("N/A"),
+    ecas_als_non_specific_man = ela_ne,
+    ecas_als_non_spe_dic_man = resultado_ela_ne |> na_if("N/A"),
+    ecas_total_man = total,
+    ecas_result_dic = resultado_total |> na_if("N/A"),
+
+    # Behavioural (ECAS-CI)
+    nps_cognitive_test__2 = if_else(!is.na(total_ec), 1, 0),
+    ecas_beh_total_man = conducta,
+    psychosis_total_man = psicosis,
+
+    # Other (ALS-FTD-Q)
+    nps_cognitive_test__99 = if_else(!is.na(alsftdq_total), 1, 0),
+    nps_cognitive_test_other = "ALS-FTD-Q",
+    nps_cognitive_test_other_result = alsftdq_total,
+  )
