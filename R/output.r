@@ -47,7 +47,7 @@ parse_phenotype_information <- function(phenotype, phenotype_other, als=1, umn=2
     )
 }
 
-redcap_site_id <- "1234"
+redcap_site_id <- "1196"
 
 output_patients_ci <- consents |>
   filter(!is.na(fecha_ci)) |>
@@ -63,15 +63,23 @@ output_patients_dead <- ufela_pacientes |>
   select(nhc) |>
   drop_na()
 
-output_patient_ids_allocated <- tibble()
+output_patient_ids_allocated <- tibble(cip=NA, record_id=NA) |>
+  left_join(ufela_pacientes |> select(nhc, cip), by = "cip")
+
+redcap_last_record_id <- output_patient_ids_allocated |>
+  pull(record_id) |>
+  str_extract("-([0-9]+)$", group=1) |>
+  as.integer() |>
+  max()
 
 output_patient_ids_unallocated <- output_patients_ci |>
   full_join(output_patients_dead, by = "nhc") |>
-  mutate(record_id = str_glue("{redcap_site_id}-{row_number()}"))
+  anti_join(output_patient_ids_allocated, by = "nhc") |>
+  left_join(ufela_pacientes |> select(nhc, cip), by = "nhc") |> 
+  mutate(record_id = str_glue("{redcap_site_id}-{redcap_last_record_id+row_number()}"))
 
 output_patient_ids <- output_patient_ids_allocated |>
-  bind_rows(output_patient_ids_unallocated) |>
-  left_join(ufela_pacientes |> select(nhc, pid, cip), by = "nhc")
+  bind_rows(output_patient_ids_unallocated)
 
 output_status <- output_patient_ids |>
   left_join(consents, by = "nhc") |>
