@@ -387,3 +387,64 @@ output_diagnosis <- output_patient_ids |>
     genetic_data = !is.na(resultado_estudio_c9) | !is.na(resultado_estudio_sod1),
     samples_data = 98,
   )
+
+output_treatment <- output_patient_ids |>
+  left_join(ufela_pacientes |> select(pid, nhc), by = "nhc") |>
+  left_join(ufela_clinica |> select(pid, riluzol), by = "pid") |>
+  left_join(
+    ufela_respi |> summarize(
+      uso_niv = any(portador_vmni, na.rm = TRUE),
+      .by = pid,
+    ),
+    by = "pid"
+  ) |>
+  left_join(
+    ufela_alsfrs |> 
+      select(pid, fecha_visita, insuficiencia_respiratoria) |>
+      drop_na() |>
+      filter(insuficiencia_respiratoria == 0) |>
+      summarize(
+        fecha_iot = min(fecha_visita, na.rm = TRUE) |> na_if(as_date(Inf)),
+        .by = pid
+      ),
+    by = "pid"
+  ) |>
+  left_join(
+    ufela_nutri |>
+      filter(portador_peg) |>
+      slice_min(fecha_visita, by = pid, n = 1, na_rm = TRUE) |>
+      select(pid, fecha_gastrostomia = "fecha_colocacion_peg"),
+    by = "pid"
+  ) |>
+  left_join(
+    ufela_nutri |> summarize(
+      uso_supl_nutricional = any(suplementacion_nutricional_oral | suplementacion_nutricional_entera, na.rm = TRUE),
+      .by = pid,
+    ),
+    by = "pid"
+  ) |>
+  transmute(
+    record_id,
+    treatment_dic = if_else(riluzol, 1, 0) |> replace_na(98),
+    other_treatment_dic = 98,
+    clinical_trials_dic = 98,
+    niv_dic = if_else(uso_niv, 1, 0) |> replace_na(0),
+    cough = 98,
+    tracheostomy = if_else(!is.na(fecha_iot), 1, 0) |> replace_na(0),
+    tracheostomy_date = fecha_iot,
+    gast_carrier_dic = if_else(!is.na(fecha_gastrostomia), 1, 0) |> replace_na(0),
+    gast_carrier_type = if_else(!is.na(fecha_gastrostomia), 0, NA), # PEG
+    gast_date = fecha_gastrostomia,
+    nut_sup = if_else(uso_supl_nutricional, 1, 0) |> replace_na(98),
+  )
+
+output_alstreatmentdata <- output_patient_ids |>
+  left_join(ufela_pacientes |> select(pid, nhc), by = "nhc") |>
+  left_join(ufela_clinica |> select(pid, riluzol, fecha_inicio_riluzol), by = "pid") |>
+  filter(riluzol) |>
+  transmute(
+    record_id,
+    treat_type = 1, # riluzole
+    med_start_date = fecha_inicio_riluzol,
+    treat_status = 1,
+  )

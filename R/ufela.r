@@ -21,7 +21,7 @@ ufela_clinica = DBI::dbGetQuery(ufela_db, "SELECT * FROM datos_clinicos") |>
   rows_update(tibble(pid = "ebf7ca94-7397-11ec-803e-e338475c84d8", fecha_diagnostico_ELA = "03-01-2022"), by = "pid") |>
   mutate(
     across(starts_with("fecha_"), lubridate::dmy),
-    across(starts_with("historia_familiar_"), ~case_match(.x, "Sí" ~ TRUE, "No" ~ FALSE)),
+    across(c(starts_with("historia_familiar_"), riluzol), ~case_match(.x, "Sí" ~ TRUE, "No" ~ FALSE)),
     across(fumador, ~na_if(.x, "NS/NC")),
   )
 
@@ -70,6 +70,7 @@ ufela_respi <- DBI::dbGetQuery(ufela_db, "SELECT * FROM fun_res") |>
     across(starts_with("fvc_"), as.integer),
     across(c(pim, pem, pns), as.integer),
     across(c(ph_sangre_arterial, pao2, paco2, hco3), as.numeric),
+    across(portador_vmni, ~ case_match(.x, "Sí" ~ TRUE, "No" ~ FALSE)),
     pao2 = if_else(pao2 |> between(60, 250), pao2, NA_real_),
     paco2 = if_else(paco2 |> between(10, 100), paco2, NA_real_),
     hco3 = if_else(hco3 |> between(10, 45), hco3, NA_real_),
@@ -86,6 +87,7 @@ ufela_nutri <- DBI::dbGetQuery(ufela_db, "SELECT * FROM datos_antro") |>
   mutate(
     across(starts_with("fecha_"), lubridate::dmy),
     across(c(peso, peso_premorbido, estatura, imc_actual), as.numeric),
+    across(c(starts_with("suplementacion_nutricional_"), portador_peg), ~case_match(.x, "Sí" ~ TRUE, "No" ~ FALSE)),
     estatura = if_else(estatura |> between(1, 2), estatura * 100, estatura),
     imc_actual = coalesce(round(peso / (estatura/100)^2, digits=1), imc_actual),
   ) |>
