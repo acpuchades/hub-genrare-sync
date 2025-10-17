@@ -69,7 +69,7 @@ ufela_respi <- DBI::dbGetQuery(ufela_db, "SELECT * FROM fun_res") |>
     across(starts_with("fecha_"), lubridate::dmy),
     across(starts_with("fvc_"), as.integer),
     across(c(pim, pem, pns), as.integer),
-    across(c(ph_sangre_arterial, pao2, paco2, hco3), as.numeric),
+    across(c(ph_sangre_arterial, pao2, paco2, hco3, sao2_media, ct90), as.numeric),
     across(portador_vmni, ~ case_match(.x, "Sí" ~ TRUE, "No" ~ FALSE)),
     pao2 = if_else(pao2 |> between(60, 250), pao2, NA_real_),
     paco2 = if_else(paco2 |> between(10, 100), paco2, NA_real_),

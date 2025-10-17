@@ -523,6 +523,32 @@ output_fvcinfo <- output_patient_ids |>
     fvc_decub_ml = fvc_estirado_absoluto,
   )
 
+output_advancedrespiratorydata <- output_patient_ids |>
+  inner_join(
+    ufela_respi |>
+      select(
+        pid, fecha_visita,
+        pim, pem, pns, # Respiratory strength
+        ph_sangre_arterial, paco2, pao2, hco3, # Blood gases
+        sao2_media, ct90, # Night pulsioximetry
+      ) |>
+      filter(if_any(-c(pid, fecha_visita), ~!is.na(.))),
+    by = "pid", relationship = "one-to-many"
+  ) |>
+  transmute(
+    record_id,
+    respiratory_date = fecha_visita,
+    mip_cmh2o = pim,
+    mep_cmh2o = pem,
+    snip = pns,
+    sleep_under90 = ct90,
+    spo2_media = sao2_media,
+    ph = ph_sangre_arterial,
+    pco2 = paco2,
+    po2 = pao2,
+    hco3 = hco3
+  )
+
 output_weightandbmi <- output_patient_ids |>
   inner_join(
     ufela_nutri |>
