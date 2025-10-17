@@ -522,3 +522,16 @@ output_fvcinfo <- output_patient_ids |>
     fvc_decub_perc = fvc_estirado,
     fvc_decub_ml = fvc_estirado_absoluto,
   )
+
+output_weightandbmi <- output_patient_ids |>
+  inner_join(
+    ufela_nutri |>
+      select(pid, fecha_visita, peso) |>
+      drop_na(),
+    by = "pid", relationship = "one-to-many"
+  ) |>
+  transmute(
+    record_id,
+    weight_current_date = fecha_visita,
+    weight_current = peso
+  )
