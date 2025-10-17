@@ -447,7 +447,7 @@ output_alstreatmentdata <- output_patient_ids |>
   )
 
 output_alsfrs <- output_patient_ids |>
-  left_join(
+  inner_join(
     ufela_alsfrs |>
       select(pid, fecha_visita, lenguaje:insuficiencia_respiratoria, total, mitos) |>
       filter(if_any(c(lenguaje:insuficiencia_respiratoria, total, mitos), ~!is.na(.))),
@@ -483,7 +483,7 @@ output_alsfrs <- output_patient_ids |>
   )
 
 output_kings <- output_patient_ids |>
-  left_join(
+  inner_join(
     ufela_alsfrs |> select(pid, fecha_visita, kings),
     by = "pid", relationship = "one-to-many"
   ) |>
@@ -495,7 +495,7 @@ output_kings <- output_patient_ids |>
   )
 
 output_eq5d5l <- output_patient_ids |>
-  left_join(pals_eq5, by = "nhc", relationship = "one-to-many") |>
+  inner_join(pals_eq5, by = "nhc", relationship = "one-to-many") |>
   transmute(
     record_id,
     eq_5d_5l_date = fecha,
