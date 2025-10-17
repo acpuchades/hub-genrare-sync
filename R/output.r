@@ -71,11 +71,11 @@ output_patient_ids_unallocated <- output_patients_ci |>
 
 output_patient_ids <- output_patient_ids_allocated |>
   bind_rows(output_patient_ids_unallocated) |>
-  left_join(ufela_pacientes |> select(nhc, cip), by = "nhc")
+  left_join(ufela_pacientes |> select(nhc, pid, cip), by = "nhc")
 
 output_status <- output_patient_ids |>
   left_join(consents, by = "nhc") |>
-  inner_join(ufela_pacientes |> select(nhc, cip, exitus, fecha_exitus), by = "nhc") |>
+  inner_join(ufela_pacientes |> select(nhc, exitus, fecha_exitus), by = "nhc") |>
   transmute(
     record_id,
     ci_date_entry = fecha_ci,
@@ -145,11 +145,11 @@ output_personalinformation <- output_patient_ids |>
 output_demographics <- output_patient_ids |>
   left_join(
     ufela_pacientes |> select(
-      pid, nhc, sexo, fecha_nacimiento, provincia_nacimiento,
+      pid, sexo, fecha_nacimiento, provincia_nacimiento,
       codigo_postal, estudios, situacion_laboral_actual,
       situacion_laboral_actual_otra, exitus, fecha_exitus
     ),
-    by = "nhc"
+    by = "pid"
   ) |>
   left_join(ufela_clinica |> select(pid, fumador, starts_with("historia_familiar_")), by = "pid") |>
   transmute(
@@ -226,7 +226,6 @@ output_demographics <- output_patient_ids |>
   )
 
 output_clinicaldata <- output_patient_ids |>
-  left_join(ufela_pacientes |> select(nhc, pid), by = "nhc") |>
   left_join(
     ufela_clinica |> select(
       pid, fecha_inicio_clinica, fecha_diagnostico_ELA,
@@ -342,8 +341,8 @@ output_clinicaldata <- output_patient_ids |>
 
 output_diagnosis <- output_patient_ids |>
   left_join(
-    ufela_pacientes |> select(nhc, pid, exitus, fecha_exitus),
-    by = "nhc"
+    ufela_pacientes |> select(pid, exitus, fecha_exitus),
+    by = "pid"
   ) |>
   left_join(
     ufela_clinica |> select(
@@ -389,7 +388,6 @@ output_diagnosis <- output_patient_ids |>
   )
 
 output_treatment <- output_patient_ids |>
-  left_join(ufela_pacientes |> select(pid, nhc), by = "nhc") |>
   left_join(ufela_clinica |> select(pid, riluzol), by = "pid") |>
   left_join(
     ufela_respi |> summarize(
@@ -439,7 +437,6 @@ output_treatment <- output_patient_ids |>
   )
 
 output_alstreatmentdata <- output_patient_ids |>
-  left_join(ufela_pacientes |> select(pid, nhc), by = "nhc") |>
   left_join(ufela_clinica |> select(pid, riluzol, fecha_inicio_riluzol), by = "pid") |>
   filter(riluzol) |>
   transmute(
