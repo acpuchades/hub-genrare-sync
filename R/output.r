@@ -63,16 +63,15 @@ output_patients_dead <- ufela_pacientes |>
   select(nhc) |>
   drop_na()
 
-output_patient_ids <- output_patients_ci |>
-  full_join(output_patients_dead, by = "nhc")
-
 output_patient_ids_allocated <- tibble()
 
-output_patient_ids_unallocated <- output_patient_ids |>
+output_patient_ids_unallocated <- output_patients_ci |>
+  full_join(output_patients_dead, by = "nhc") |>
   mutate(record_id = str_glue("{redcap_site_id}-{row_number()}"))
 
 output_patient_ids <- output_patient_ids_allocated |>
-  bind_rows(output_patient_ids_unallocated)
+  bind_rows(output_patient_ids_unallocated) |>
+  left_join(ufela_pacientes |> select(nhc, cip), by = "nhc")
 
 output_status <- output_patient_ids |>
   left_join(consents, by = "nhc") |>
@@ -124,7 +123,7 @@ output_personalinformation <- output_patient_ids |>
   left_join(
     ufela_pacientes |>
       left_join(ufela_seguimiento, by = "pid") |>
-      select(nhc, cip, fecha_ultima_visita, exitus, fecha_exitus),
+      select(nhc, fecha_ultima_visita, exitus, fecha_exitus),
     by = "nhc"
   ) |>
   transmute(
