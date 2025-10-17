@@ -493,3 +493,16 @@ output_kings <- output_patient_ids |>
     kings_date = fecha_visita,
     kings_total = kings
   )
+
+output_eq5d5l <- output_patient_ids |>
+  left_join(pals_eq5, by = "nhc", relationship = "one-to-many") |>
+  transmute(
+    record_id,
+    eq_5d_5l_date = fecha,
+    mobility = movilidad,
+    selfcare = autocuidado,
+    usual_act = actividades,
+    pain = dolor_malestar,
+    anxiety = ansiedad_depresion,
+    health_status = eva
+  )
