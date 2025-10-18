@@ -2,6 +2,7 @@ library(dplyr)
 library(stringr)
 library(lubridate)
 
+source(here::here("R", "biobanco.r"))
 source(here::here("R", "consents.r"))
 source(here::here("R", "precision.r"))
 source(here::here("R", "ufela.r"))
@@ -64,18 +65,18 @@ output_patients_dead <- ufela_pacientes |>
   drop_na()
 
 output_patient_ids_allocated <- tibble(cip=NA, record_id=NA) |>
-  left_join(ufela_pacientes |> select(nhc, cip), by = "cip")
+  left_join(ufela_pacientes |> select(nhc, cip, pid), by = "cip")
 
-redcap_last_record_id <- output_patient_ids_allocated |>
+redcap_last_record_id <- coalesce(output_patient_ids_allocated |>
   pull(record_id) |>
   str_extract("-([0-9]+)$", group=1) |>
   as.integer() |>
-  max()
+  max(), 0)
 
 output_patient_ids_unallocated <- output_patients_ci |>
   full_join(output_patients_dead, by = "nhc") |>
   anti_join(output_patient_ids_allocated, by = "nhc") |>
-  left_join(ufela_pacientes |> select(nhc, cip), by = "nhc") |> 
+  left_join(ufela_pacientes |> select(nhc, cip, pid), by = "nhc") |> 
   mutate(record_id = str_glue("{redcap_site_id}-{redcap_last_record_id+row_number()}"))
 
 output_patient_ids <- output_patient_ids_allocated |>
@@ -622,4 +623,32 @@ output_cognitiveassessment <- output_patient_ids |>
     nps_cognitive_test__99 = if_else(!is.na(alsftdq_total), 1, 0),
     nps_cognitive_test_other = "ALS-FTD-Q",
     nps_cognitive_test_other_result = alsftdq_total,
+  )
+
+output_samples <- output_patient_ids |>
+  inner_join(
+    biobanco_muestras |>
+      select(nhc, codigo_muestra_noray_banks, fecha_de_entrada, tipo_muestra),
+    by = "nhc", relationship = "one-to-many"
+  ) |>
+  transmute(
+    record_id,
+    sample_collection_date = fecha_de_entrada,
+    sample_type = case_match(tipo_muestra, 
+      "04-Líquido Cefalorraquídeo" ~ 3, # CSF
+      "08-Plasma" ~ 2, # Serum/Plasma
+      "09-Suero" ~ 2, # Serum/Plasma
+      "13-ADN" ~ 1, # DNA
+      "Pellet" ~ 1, # DNA
+      "11-Buffy coat" ~ 1, # DNA
+      "Plasma Litio" ~ 2, # Serum/Plasma
+      "01a-Sangre EDTA" ~ 2, # Serum/Plasma
+      "05-Orina" ~ 4, # Urine
+      "02-Sangre ocre" ~ 2, # Serum/Plasma
+      .default = 99 # Other
+    ),
+    sample_storage = 1, # Biobank
+    biobank_name = "HUB-ICO-IDIBELL Biobank",
+    biobank_link = "https://idibell.cat/en/services/scientific-and-technical-services/biobank/",
+    biobank_code = codigo_muestra_noray_banks,
   )
