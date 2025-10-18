@@ -21,8 +21,55 @@ ufela_clinica = DBI::dbGetQuery(ufela_db, "SELECT * FROM datos_clinicos") |>
   rows_update(tibble(pid = "ebf7ca94-7397-11ec-803e-e338475c84d8", fecha_diagnostico_ELA = "03-01-2022"), by = "pid") |>
   mutate(
     across(starts_with("fecha_"), lubridate::dmy),
-    across(c(starts_with("historia_familiar_"), riluzol), ~case_match(.x, "Sí" ~ TRUE, "No" ~ FALSE)),
-    across(fumador, ~na_if(.x, "NS/NC")),
+    across(c(starts_with("historia_familiar_"), matches("estudio_genetico_(c9|sod1)"), riluzol), ~case_match(.x, "Sí" ~ TRUE, "No" ~ FALSE)),
+    across(c(starts_with("resultado_estudio_"), fumador), ~na_if(.x, "NS/NC")),
+    estudio_genetico_atxn2 = str_detect(estudio_genetico_otro, "ATA?XN2"),
+    estudio_genetico_ar = str_detect(estudio_genetico_otro, "KENNEDY|AR"),
+    estudio_genetico_tardbp = str_detect(estudio_genetico_otro, "TARDBP"),
+    estudio_genetico_fus = str_detect(estudio_genetico_otro, "FUS"),
+    estudio_genetico_unc13a = str_detect(estudio_genetico_otro, "UNCA?13A"),
+    numero_repeticiones_atxn2_a1 = estudio_genetico_otro |>
+      str_extract("ATA?XN2 *([0-9]+)", group=1) |>
+      as.integer(),
+    numero_repeticiones_atxn2_a2 = estudio_genetico_otro |>
+      str_extract("ATA?XN2 *([0-9]+) */ *([0-9]+)", group = 2) |>
+      as.integer(),
+    resultado_estudio_atxn2 = case_when(
+      is.na(estudio_genetico_atxn2) ~ NA,
+      numero_repeticiones_atxn2_a1 > 26 ~ "Alterado",
+      numero_repeticiones_atxn2_a2 > 26 ~ "Alterado",
+      numero_repeticiones_atxn2_a1 <= 26 &
+        numero_repeticiones_atxn2_a2 <= 26 ~ "Normal",
+      TRUE ~ if_else(estudio_genetico_otro |>
+        str_extract("ATA?XN2 ([^@]+)", group = 1) |>
+        str_detect("INTERMEDIO?"),
+        "Alterado", "Normal"
+      )
+    ),
+    resultado_estudio_tardbp = case_when(
+      is.na(estudio_genetico_tardbp) ~ NA,
+      TRUE ~ if_else(estudio_genetico_otro |>
+        str_extract("TARDBP ([^@]+)", group = 1) |>
+        str_detect("ALTERA(T|DO)|HOMOCIGOTO|PATOGENICO?|POSITI(U|VO)"),
+        "Alterado", "Normal"
+      )
+    ),
+    resultado_estudio_fus = case_when(
+      is.na(estudio_genetico_fus) ~ NA,
+      TRUE ~ if_else(estudio_genetico_otro |>
+        str_extract("FUS ([^@]+)", group = 1) |>
+        str_detect("ALTERA(T|DO)|HOMOCIGOTO|PATOGENICO?|POSITI(U|VO)"),
+        "Alterado", "Normal"
+      )
+    ),
+    resultado_estudio_unc13a = case_when(
+      is.na(estudio_genetico_unc13a) ~ NA,
+      TRUE ~ if_else(estudio_genetico_otro |>
+        str_extract("UNCA?13A ([^@]+)", group = 1) |>
+        str_detect("ALTERA(T|DO)|HOMOCIGOTO|PATOGENICO?|POSITI(U|VO)"),
+        "Alterado", "Normal"
+      )
+    ),
   )
 
 ufela_alsfrs = DBI::dbGetQuery(ufela_db, "SELECT * FROM esc_val_ela") |>

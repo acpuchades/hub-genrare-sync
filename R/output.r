@@ -348,6 +348,95 @@ output_clinicaldata <- output_patient_ids |>
     pgic_data = 0,
   )
 
+output_geneticstudy <- bind_rows(
+  output_patient_ids |>
+    inner_join(ufela_clinica |> select(pid, starts_with("estudio_genetico_")), by = "pid") |>
+    filter(estudio_genetico_c9 | estudio_genetico_atxn2 | estudio_genetico_ar) |>
+    transmute(
+      record_id,
+      analy_seq = 6, # Expansion (triple PCR)
+      analy_gene_triple_pcr__AR = if_else(estudio_genetico_ar, 1, 0),
+      analy_gene_triple_pcr__ATXN2 = if_else(estudio_genetico_atxn2, 1, 0),
+      analy_gene_triple_pcr__C9orf72 = if_else(estudio_genetico_c9, 1, 0),
+    ),
+  output_patient_ids |>
+    inner_join(ufela_clinica |> select(pid, starts_with("estudio_genetico_")), by = "pid") |>
+    filter(estudio_genetico_sod1 | estudio_genetico_fus | estudio_genetico_tardbp | estudio_genetico_unc13a) |>
+    transmute(
+      record_id,
+      analy_seq = 1, # Sanger or Reduced panel
+      analy_seq__SOD1 = if_else(estudio_genetico_sod1, 1, 0),
+      analy_seq__TARDBP = if_else(estudio_genetico_tardbp, 1, 0),
+      analy_seq__FUS = if_else(estudio_genetico_fus, 1, 0),
+      analy_seq__UNC13A = if_else(estudio_genetico_unc13a, 1, 0),
+    )
+)
+
+output_geneticvariations <- bind_rows(
+  output_patient_ids |>
+    inner_join(ufela_clinica |> select(pid, resultado_estudio_c9), by = "pid") |>
+    filter(resultado_estudio_c9 == "Alterado") |>
+    transmute(
+      record_id,
+      gen_gene = "HGNC:28337", # C9orf72
+      gen_alle1_var_typ_2 = 2, # Repetitions
+      gen_alle1_cnv_n = 999, # Repeated expansion
+      gen_alle1_fx = 4, # Pathogenic
+      clin_criteria = 1, # Yes
+    ),
+  output_patient_ids |>
+    inner_join(
+      ufela_clinica |>
+        select(pid, resultado_estudio_atxn2, starts_with("numero_repeticiones_atxn2_")),
+      by = "pid"
+    ) |>
+    filter(resultado_estudio_atxn2 == "Alterado") |>
+    transmute(
+      record_id,
+      gen_gene = "HGNC:10555", # ATXN2
+      gen_alle1_var_typ_2 = 2, # Repetitions
+      gen_alle1_cnv_n = numero_repeticiones_atxn2_a1,
+      gen_alle2_cnv_n = numero_repeticiones_atxn2_a2,
+      clin_criteria = 1, # Yes
+    ),
+  output_patient_ids |>
+    inner_join(ufela_clinica |> select(pid, resultado_estudio_sod1), by = "pid") |>
+    filter(resultado_estudio_sod1 == "Alterado") |>
+    transmute(
+      record_id,
+      gen_gene = "HGNC:11179", # SOD1
+      gen_alle1_var_typ_2 = 1, # SNV
+      clin_criteria = 98, # Unknown
+    ),
+  output_patient_ids |>
+    inner_join(ufela_clinica |> select(pid, resultado_estudio_tardbp), by = "pid") |>
+    filter(resultado_estudio_tardbp == "Alterado") |>
+    transmute(
+      record_id,
+      gen_gene = "HGNC:11571", # TARDBP
+      gen_alle1_var_typ_2 = 1, # SNV
+      clin_criteria = 98, # Unknown
+    ),
+  output_patient_ids |>
+    inner_join(ufela_clinica |> select(pid, resultado_estudio_fus), by = "pid") |>
+    filter(resultado_estudio_fus == "ALTERADO") |>
+    transmute(
+      record_id,
+      gen_gene = "HGNC:4010", # FUS
+      gen_alle1_var_typ_2 = 1, # SNV
+      clin_criteria = 98, # Unknown
+    ),
+  output_patient_ids |>
+    inner_join(ufela_clinica |> select(pid, resultado_estudio_unc13a), by = "pid") |>
+    filter(resultado_estudio_unc13a == "Alterado") |>
+    transmute(
+      record_id,
+      gen_gene = "HGNC:23150", # UNC13A
+      gen_alle1_var_typ_2 = 1, # SNV
+      clin_criteria = 98, # Unknown
+    ),
+)
+
 output_diagnosis <- output_patient_ids |>
   left_join(
     ufela_pacientes |> select(pid, exitus, fecha_exitus),
