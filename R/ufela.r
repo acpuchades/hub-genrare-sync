@@ -29,10 +29,12 @@ ufela_clinica = DBI::dbGetQuery(ufela_db, "SELECT * FROM datos_clinicos") |>
     estudio_genetico_fus = str_detect(estudio_genetico_otro, "FUS"),
     estudio_genetico_unc13a = str_detect(estudio_genetico_otro, "UNCA?13A"),
     numero_repeticiones_atxn2_a1 = estudio_genetico_otro |>
-      str_extract("ATA?XN2 *([0-9]+)", group=1) |>
+      str_extract("ATA?XN2 *([^@]+)", group=1) |>
+      str_extract("*([0-9]+) */ *([0-9]+)", group=1) |>
       as.integer(),
     numero_repeticiones_atxn2_a2 = estudio_genetico_otro |>
-      str_extract("ATA?XN2 *([0-9]+) */ *([0-9]+)", group = 2) |>
+      str_extract("ATA?XN2 *([^@]+)", group=1) |>
+      str_extract("*([0-9]+) */ *([0-9]+)", group=2) |>
       as.integer(),
     resultado_estudio_atxn2 = case_when(
       is.na(estudio_genetico_atxn2) ~ NA,
