@@ -1,11 +1,16 @@
 library(dplyr)
 library(stringr)
 library(lubridate)
+library(purrr)
 
 source(here::here("R", "biobanco.r"))
 source(here::here("R", "consents.r"))
 source(here::here("R", "precision.r"))
 source(here::here("R", "ufela.r"))
+
+output_tofersen_study_ids <- c(
+  "1196-6", "1196-7", "1196-8", "1196-9"
+)
 
 parse_phenotype_information <- function(phenotype, phenotype_other, als=1, umn=2, lmn=3, fosmn=4) {
   case_match(phenotype,
@@ -50,6 +55,21 @@ parse_phenotype_information <- function(phenotype, phenotype_other, als=1, umn=2
 
 redcap_site_id <- "1196"
 
+output_patient_ids_allocated <- tribble(
+  ~record_id, ~cip,
+  "1196-1",  "NAES0550617002",
+  "1196-2",  "GASA1431229004",
+  "1196-3",  "COMI0670226008",
+  "1196-4",  "AGGO0790828000",
+  "1196-5",  "LOCA1420115001",
+  "1196-6",  "PAGA1921202000",
+  "1196-7",  "AZZA0840304005",
+  "1196-8",  "GALO1670712008",
+  "1196-9",  "GAPA1611108001",
+  "1196-11", "RACA1681103008",
+) |>
+  left_join(ufela_pacientes |> select(nhc, cip, pid), by = "cip")
+
 output_patients_ci <- consents |>
   filter(!is.na(fecha_ci)) |>
   select(nhc) |>
@@ -64,9 +84,6 @@ output_patients_dead <- ufela_pacientes |>
   select(nhc) |>
   drop_na()
 
-output_patient_ids_allocated <- tibble(cip=NA, record_id=NA) |>
-  left_join(ufela_pacientes |> select(nhc, cip, pid), by = "cip")
-
 redcap_last_record_id <- coalesce(output_patient_ids_allocated |>
   pull(record_id) |>
   str_extract("-([0-9]+)$", group=1) |>
@@ -76,11 +93,18 @@ redcap_last_record_id <- coalesce(output_patient_ids_allocated |>
 output_patient_ids_unallocated <- output_patients_ci |>
   full_join(output_patients_dead, by = "nhc") |>
   anti_join(output_patient_ids_allocated, by = "nhc") |>
-  left_join(ufela_pacientes |> select(nhc, cip, pid), by = "nhc") |> 
-  mutate(record_id = str_glue("{redcap_site_id}-{redcap_last_record_id+row_number()}"))
+  left_join(
+    ufela_pacientes |>
+      select(nhc, cip, pid, created_datetime) |>
+      drop_na(cip),
+    by = "nhc"
+  ) |>
+  arrange(created_datetime) |>
+  transmute(nhc, cip, pid, record_id = str_glue("{redcap_site_id}-{redcap_last_record_id+row_number()}"))
 
 output_patient_ids <- output_patient_ids_allocated |>
-  bind_rows(output_patient_ids_unallocated)
+  bind_rows(output_patient_ids_unallocated) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer())
 
 output_status <- output_patient_ids |>
   left_join(consents, by = "nhc") |>
@@ -100,29 +124,41 @@ output_status <- output_patient_ids |>
     status_related_exitus = NA,
     death_place = if_else(exitus, 98, NA_integer_), # Unknown
     status_update = if_else(exitus, fecha_exitus, today()),
-    seed_project = if_else(!is.na(seed_als), "Yes", "No")
+    seed_project = if_else(!is.na(seed_als), 1, 0)
   )
 
-output_consent <- output_patient_ids |>
-  inner_join(consents, by = "nhc") |>
-  transmute(
-    record_id,
-    ci = if_else(!is.na(fecha_ci), "Yes", "No"),
-    ci_type = 1, # Adult
-    ci_date = fecha_ci,
-    ci_version = 6,
-    ci_options__1 = 1,
-    ci_options__2 = if_else(comparte_con_grupos, 1, NA),
-    ci_options__3 = if_else(comparte_con_registros, 1, NA),
-    ci_options__4 = if_else(consiente_relacionados, 1, NA),
-    ci_opt_pers_data__0 = if_else(!consiente_contacto & is.na(email), 1, NA),
-    ci_opt_pers_data__1 = if_else(!consiente_contacto & !is.na(email), 1, NA),
-    ci_opt_pers_data__2 = if_else(consiente_contacto & !is.na(email), 1, NA),
-    ci_options_assays__0 = if_else(!interesado_ensayos, 1, NA),
-    ci_options_assays__1 = if_else(interesado_ensayos, 1, NA),
-    ci_date_remove = fecha_retirada_ci,
-    ci_update = pmax(fecha_ci, fecha_retirada_ci),
-  )
+output_consent <- bind_rows(
+  output_patient_ids |>
+    inner_join(
+      consents |> filter(!is.na(fecha_ci)),
+      by = "nhc"
+    ) |>
+    transmute(
+      record_id,
+      ci = 1,
+      ci_type = 1, # Adult
+      ci_date = fecha_ci,
+      ci_version = 6,
+      ci_options__1 = 1,
+      ci_options__2 = if_else(comparte_con_grupos, 1, NA),
+      ci_options__3 = if_else(comparte_con_registros, 1, NA),
+      ci_options__4 = if_else(consiente_relacionados, 1, NA),
+      ci_opt_pers_data__0 = if_else(!consiente_contacto & is.na(email), 1, NA),
+      ci_opt_pers_data__1 = if_else(!consiente_contacto & !is.na(email), 1, NA),
+      ci_opt_pers_data__2 = if_else(consiente_contacto & !is.na(email), 1, NA),
+      ci_options_assays__0 = if_else(!interesado_ensayos, 1, NA),
+      ci_options_assays__1 = if_else(interesado_ensayos, 1, NA),
+      ci_date_remove = fecha_retirada_ci,
+      ci_update = pmax(fecha_ci, fecha_retirada_ci),
+    ),
+  output_patient_ids |>
+    anti_join(consents |> filter(!is.na(fecha_ci)), by = "nhc") |>
+    transmute(
+      record_id,
+      ci = 0,
+    )
+) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer())
 
 output_personalinformation <- output_patient_ids |>
   left_join(
@@ -148,7 +184,8 @@ output_personalinformation <- output_patient_ids |>
       !is.na(fecha_perdida_seguimiento) ~ 0,
       (fecha_ultima_visita - today()) <= dyears(1) ~ 1,
       TRUE ~ 98
-    )
+    ),
+    personal_update = today()
   )
 
 output_demographics <- output_patient_ids |>
@@ -232,6 +269,7 @@ output_demographics <- output_patient_ids |>
     incapacity_type = 98,
     disability = coalesce(if_else(situacion_laboral_actual == 7, NA, 0), 98),
     previous_jobs = 0,
+    demo_update = today(),
   )
 
 output_clinicaldata <- output_patient_ids |>
@@ -316,7 +354,10 @@ output_clinicaldata <- output_patient_ids |>
     als_symp_bulbar__3 = if_else(fenotipo_al_diagnostico %in% c("ELA Bulbar", "Parálisis bulbar progresiva"), 1, 0),
     als_symp_spinal__6 = if_else(fenotipo_al_diagnostico == "Flail arm", 1, 0),
     als_symp_spinal__7 = if_else(fenotipo_al_diagnostico == "Flail leg", 1, 0),
-    als_symp_resp__1 = if_else(fenotipo_al_diagnostico == "ELA respiratoria", 1, 0),
+    als_symp_spinal__8 = if_else(fenotipo_al_diagnostico %in% c(
+      "ELA Espinal", "Monomiélica", "Hemipléjica (Mills)", "Pseudopolineurítica"
+    ), 1, 0),
+    als_symp_resp__3 = if_else(fenotipo_al_diagnostico == "ELA Respiratoria", 1, 0),
     # orpha_code,
     als_symp_other_old = fenotipo_al_diagnostico,
     height = estatura,
@@ -346,6 +387,7 @@ output_clinicaldata <- output_patient_ids |>
     eq_5d_5l_data = if_else(eq5_data_available, 1, 0) |> replace_na(0),
     cgic_data = 0,
     pgic_data = 0,
+    clinical_update = today(),
   )
 
 output_geneticstudy <- bind_rows(
@@ -370,7 +412,10 @@ output_geneticstudy <- bind_rows(
       analy_seq__FUS = if_else(estudio_genetico_fus, 1, 0),
       analy_seq__UNC13A = if_else(estudio_genetico_unc13a, 1, 0),
     )
-)
+) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer()) |>
+  mutate(redcap_repeat_instrument = "genetic_study", genetstudy_update = today(), .after=record_id) |>
+  mutate(redcap_repeat_instance = row_number(), .by = record_id, .after=redcap_repeat_instrument)
 
 output_geneticvariations <- bind_rows(
   output_patient_ids |>
@@ -435,7 +480,10 @@ output_geneticvariations <- bind_rows(
       gen_alle1_var_typ_2 = 1, # SNV
       clin_criteria = 98, # Unknown
     ),
-)
+) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer()) |>
+  mutate(redcap_repeat_instrument = "genetic_variations", genetanaly_update = today(), .after=record_id) |>
+  mutate(redcap_repeat_instance = row_number(), .by = record_id, .after=redcap_repeat_instrument)
 
 output_diagnosis <- output_patient_ids |>
   left_join(
@@ -483,6 +531,7 @@ output_diagnosis <- output_patient_ids |>
     rm = 98,
     genetic_data = !is.na(resultado_estudio_c9) | !is.na(resultado_estudio_sod1),
     samples_data = 98,
+    diagnosis_update = today(),
   )
 
 output_treatment <- output_patient_ids |>
@@ -532,6 +581,7 @@ output_treatment <- output_patient_ids |>
     gast_carrier_type = if_else(!is.na(fecha_gastrostomia), 0, NA), # PEG
     gast_date = fecha_gastrostomia,
     nut_sup = if_else(uso_supl_nutricional, 1, 0) |> replace_na(98),
+    trmt_update = today(),
   )
 
 output_alstreatmentdata <- output_patient_ids |>
@@ -542,7 +592,10 @@ output_alstreatmentdata <- output_patient_ids |>
     treat_type = 1, # riluzole
     med_start_date = fecha_inicio_riluzol,
     treat_status = 1,
-  )
+  ) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer()) |>
+  mutate(redcap_repeat_instrument = "als_treatment_data", medication_update = today(), .after = record_id) |>
+  mutate(redcap_repeat_instance = row_number(), .by = record_id, .after=redcap_repeat_instrument)
 
 output_alsfrs <- output_patient_ids |>
   inner_join(
@@ -556,7 +609,7 @@ output_alsfrs <- output_patient_ids |>
     by = join_by(pid, closest(fecha_visita >= fecha_visita_nutri)), multiple = "first"
   ) |>
   transmute(
-    record_id,
+    record_id, redcap_repeat_instrument = "alsfrs",
     alsfrs_date = fecha_visita,
     alsfrs_total_man = total,
     mitos_staging_man = mitos,
@@ -578,7 +631,10 @@ output_alsfrs <- output_patient_ids |>
     alsfrs_dyspnea = disnea,
     alsfrs_orthopnea = ortopnea,
     alsfrs_resp_failure = insuficiencia_respiratoria,
-  )
+    alsfrs_update = today(),
+  ) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer(), alsfrs_date) |>
+  mutate(redcap_repeat_instance = row_number(), .by = record_id, .after=redcap_repeat_instrument)
 
 output_kings <- output_patient_ids |>
   inner_join(
@@ -587,23 +643,29 @@ output_kings <- output_patient_ids |>
   ) |>
   drop_na(fecha_visita, kings) |>
   transmute(
-    record_id, 
+    record_id, redcap_repeat_instrument = "kings",
     kings_date = fecha_visita,
-    kings_total = kings
-  )
+    kings_total = kings,
+    kings_update = today(),
+  ) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer(), kings_date) |>
+  mutate(redcap_repeat_instance = row_number(), .by = record_id, .after=redcap_repeat_instrument)
 
 output_eq5d5l <- output_patient_ids |>
   inner_join(pals_eq5, by = "nhc", relationship = "one-to-many") |>
   transmute(
-    record_id,
+    record_id, redcap_repeat_instrument = "eq_5d_5l",
     eq_5d_5l_date = fecha,
     mobility = movilidad,
     selfcare = autocuidado,
     usual_act = actividades,
     pain = dolor_malestar,
     anxiety = ansiedad_depresion,
-    health_status = eva
-  )
+    health_status = eva,
+    hrqol_update = today(),
+  ) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer(),eq_5d_5l_date) |>
+  mutate(redcap_repeat_instance = row_number(), .by = record_id, .after=redcap_repeat_instrument)
 
 output_fvcinfo <- output_patient_ids |>
   inner_join(
@@ -613,13 +675,16 @@ output_fvcinfo <- output_patient_ids |>
     by = "pid", relationship = "one-to-many"
   ) |>
   transmute(
-    record_id,
+    record_id, redcap_repeat_instrument = "fvc_info",
     fvc_date = fecha_visita,
     fvc_basal_perc = fvc_sentado,
     fvc_basal_ml = fvc_sentado_absoluto,
     fvc_decub_perc = fvc_estirado,
     fvc_decub_ml = fvc_estirado_absoluto,
-  )
+    fvc_update = today()
+  ) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer(), fvc_date) |>
+  mutate(redcap_repeat_instance = row_number(), .by = record_id, .after=redcap_repeat_instrument)
 
 output_advancedrespiratorydata <- output_patient_ids |>
   inner_join(
@@ -634,7 +699,7 @@ output_advancedrespiratorydata <- output_patient_ids |>
     by = "pid", relationship = "one-to-many"
   ) |>
   transmute(
-    record_id,
+    record_id, redcap_repeat_instrument = "advanced_respiratory_data",
     respiratory_date = fecha_visita,
     mip_cmh2o = pim,
     mep_cmh2o = pem,
@@ -644,8 +709,11 @@ output_advancedrespiratorydata <- output_patient_ids |>
     ph = ph_sangre_arterial,
     pco2 = paco2,
     po2 = pao2,
-    hco3 = hco3
-  )
+    hco3 = hco3,
+    resp_update = today(),
+  ) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer(), respiratory_date) |>
+  mutate(redcap_repeat_instance = row_number(), .by = record_id, .after=redcap_repeat_instrument)
 
 output_weightandbmi <- output_patient_ids |>
   inner_join(
@@ -655,10 +723,13 @@ output_weightandbmi <- output_patient_ids |>
     by = "pid", relationship = "one-to-many"
   ) |>
   transmute(
-    record_id,
+    record_id, redcap_repeat_instrument = "weight_and_bmi",
     weight_current_date = fecha_visita,
-    weight_current = peso
-  )
+    weight_current = peso,
+    bmi_update = today(),
+  ) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer(), weight_current_date) |>
+  mutate(redcap_repeat_instance = row_number(), .by=record_id, .after=redcap_repeat_instrument)
 
 output_cognitiveassessment <- output_patient_ids |>
   inner_join(pals_ecas, by = "nhc", relationship = "one-to-many") |>
@@ -668,8 +739,9 @@ output_cognitiveassessment <- output_patient_ids |>
   ) |>
   drop_na(record_id, fecha) |>
   transmute(
-    record_id,
+    record_id, redcap_repeat_instrument = "cognitive_assessment",
     cognitive_date = fecha,
+    cog_update = today(),
 
     # ECAS
     nps_cognitive_test__1 = if_else(version != "-", 1, 0),
@@ -712,7 +784,9 @@ output_cognitiveassessment <- output_patient_ids |>
     nps_cognitive_test__99 = if_else(!is.na(alsftdq_total), 1, 0),
     nps_cognitive_test_other = "ALS-FTD-Q",
     nps_cognitive_test_other_result = alsftdq_total,
-  )
+  ) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer(), cognitive_date) |>
+  mutate(redcap_repeat_instance = row_number(), .by = record_id, .after=redcap_repeat_instrument)
 
 output_samples <- output_patient_ids |>
   inner_join(
@@ -721,7 +795,7 @@ output_samples <- output_patient_ids |>
     by = "nhc", relationship = "one-to-many"
   ) |>
   transmute(
-    record_id,
+    record_id, redcap_repeat_instrument = "samples",
     sample_collection_date = fecha_de_entrada,
     sample_type = case_match(tipo_muestra, 
       "04-Líquido Cefalorraquídeo" ~ 3, # CSF
@@ -740,4 +814,46 @@ output_samples <- output_patient_ids |>
     biobank_name = "HUB-ICO-IDIBELL Biobank",
     biobank_link = "https://idibell.cat/en/services/scientific-and-technical-services/biobank/",
     biobank_code = codigo_muestra_noray_banks,
+    spl_update = today(),
+  ) |>
+  arrange(
+    record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer(),
+    sample_collection_date, sample_type, biobank_code
+  ) |>
+  mutate(redcap_repeat_instance = row_number(), .by=record_id, .after=redcap_repeat_instrument)
+
+output_forms <- list(
+  output_status,
+  output_consent,
+  output_personalinformation,
+  output_demographics,
+  output_clinicaldata,
+  output_diagnosis,
+  output_treatment
+) |>
+reduce(full_join, by = "record_id") |>
+bind_rows(
+  output_geneticstudy,
+  output_geneticvariations,
+  output_alstreatmentdata,
+  output_alsfrs,
+  output_kings,
+  output_eq5d5l,
+  output_fvcinfo,
+  output_advancedrespiratorydata,
+  output_weightandbmi,
+  output_cognitiveassessment,
+  output_samples,
+) |>
+filter(!(
+  record_id %in% output_tofersen_study_ids & redcap_repeat_instrument %in% c(
+    NA,
+    "genetic_study",
+    "genetic_variations",
+    "als_treatment_data"
   )
+)) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer()) |>
+  relocate(redcap_repeat_instrument, redcap_repeat_instance, .after = record_id)
+
+readr::write_csv(output_forms, here::here("output", str_glue("redcap-snapshot-{today()}.csv")))
