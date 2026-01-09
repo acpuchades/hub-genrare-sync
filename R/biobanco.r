@@ -1,7 +1,7 @@
 library(dplyr)
 library(tidyr)
 
-biobanco_muestras_path <- here::here("data", "Biobanco 20250701.xlsx")
+biobanco_muestras_path <- here::here("data", "Biobanco 2025-07-01.xlsx")
 
 biobanco_muestras <- readxl::read_excel(biobanco_muestras_path, skip=1) |>
   janitor::clean_names() |>

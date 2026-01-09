@@ -9,7 +9,8 @@ rix::rix(
             "readxl",
             "rix",
             "RSQLite",
-            "tidyverse"
+            "tidyverse",
+            "writexl"
          ),
          overwrite = TRUE
 )

@@ -1,20 +1,24 @@
 library(dplyr)
+library(here)
 library(lubridate)
 library(purrr)
+library(stringi)
 library(stringr)
 library(tidyr)
 
-source(here::here("R", "biobanco.r"))
-source(here::here("R", "consents.r"))
-source(here::here("R", "precision.r"))
-source(here::here("R", "ufela.r"))
+source("R/biobanco.r")
+source("R/consents.r")
+source("R/precision.r")
+source("R/ufela.r")
 
-# redcap_site_id <- "1196"
+#redcap_site_id <- "1196"
 redcap_site_id <- "1939"
 
 output_tofersen_study_ids <- c(
   "1196-6", "1196-7", "1196-8", "1196-9"
 )
+
+genrare_patient_ids_path <- here("data", "genrare-patient-ids-2025-10-23.csv")
 
 parse_phenotype_information <- function(phenotype, phenotype_other, als=1, umn=2, lmn=3, fosmn=4) {
   case_match(phenotype,
@@ -57,20 +61,8 @@ parse_phenotype_information <- function(phenotype, phenotype_other, als=1, umn=2
     )
 }
 
-output_patient_ids_allocated <- tribble(
-  ~record_id, ~cip,
-  str_glue("{redcap_site_id}-1"),  "NAES0550617002",
-  str_glue("{redcap_site_id}-2"),  "GASA1431229004",
-  str_glue("{redcap_site_id}-3"),  "COMI0670226008",
-  str_glue("{redcap_site_id}-4"),  "AGGO0790828000",
-  str_glue("{redcap_site_id}-5"),  "LOCA1420115001",
-  str_glue("{redcap_site_id}-6"),  "PAGA1921202000",
-  str_glue("{redcap_site_id}-7"),  "AZZA0840304005",
-  str_glue("{redcap_site_id}-8"),  "GALO1670712008",
-  str_glue("{redcap_site_id}-9"),  "GAPA1611108001",
-  str_glue("{redcap_site_id}-11"), "RACA1681103008",
-) |>
-  left_join(ufela_pacientes |> select(nhc, cip, pid), by = "cip")
+output_patient_ids_allocated <- readr::read_csv(genrare_patient_ids_path) |>
+  janitor::clean_names()
 
 output_patients_ci <- consents |>
   filter(!is.na(fecha_ci)) |>
@@ -86,23 +78,25 @@ output_patients_dead <- ufela_pacientes |>
   select(nhc) |>
   drop_na()
 
-redcap_last_record_id <- coalesce(output_patient_ids_allocated |>
-  pull(record_id) |>
-  str_extract("-([0-9]+)$", group=1) |>
-  as.integer() |>
-  max(), 0)
+redcap_last_record_id <- coalesce(
+  output_patient_ids_allocated |>
+    pull(record_id) |>
+    str_extract("-([0-9]+)$", group=1) |>
+    as.integer() |>
+    max(), 0
+)
 
 output_patient_ids_unallocated <- output_patients_ci |>
   full_join(output_patients_dead, by = "nhc") |>
   anti_join(output_patient_ids_allocated, by = "nhc") |>
   left_join(
     ufela_pacientes |>
-      select(nhc, cip, pid, created_datetime) |>
-      drop_na(cip),
+      select(nhc, cip, pid, created_datetime),
     by = "nhc"
   ) |>
   arrange(created_datetime) |>
-  transmute(nhc, cip, pid, record_id = str_glue("{redcap_site_id}-{redcap_last_record_id+row_number()}"))
+  mutate(record_id = str_glue("{redcap_site_id}-{redcap_last_record_id+row_number()}")) |>
+  select(record_id, nhc, cip, pid)
 
 output_patient_ids <- output_patient_ids_allocated |>
   bind_rows(output_patient_ids_unallocated) |>
@@ -110,7 +104,11 @@ output_patient_ids <- output_patient_ids_allocated |>
 
 output_status <- output_patient_ids |>
   left_join(consents, by = "nhc") |>
-  inner_join(ufela_pacientes |> select(nhc, exitus, fecha_exitus), by = "nhc") |>
+  inner_join(
+    ufela_pacientes |>
+      select(nhc, exitus, fecha_nacimiento, fecha_exitus),
+    by = "nhc"
+  ) |>
   transmute(
     record_id,
     ci_date_entry = fecha_ci,
@@ -120,49 +118,46 @@ output_status <- output_patient_ids |>
       !is.na(fecha_retirada_ci) ~ 3, # Withdraws participation
       TRUE ~ 1 # Alive
     ),
+    dob = fecha_nacimiento,
     lost_date = fecha_perdida_seguimiento,
     ci_optedout_date = fecha_retirada_ci,
     death_date = fecha_exitus,
     status_related_exitus = NA,
     death_place = if_else(exitus, 98, NA_integer_), # Unknown
-    status_update = if_else(exitus, fecha_exitus, today()),
+    status_update = today(),
     seed_project = if_else(!is.na(seed_als), 1, 0),
-    status_complete = 2, # Complete
+    status_complete = if_else(
+      exitus,
+      0, # Incomplete (missing death info)
+      2  # Complete
+    )
   )
 
-output_consent <- bind_rows(
-  output_patient_ids |>
-    inner_join(
-      consents |> filter(!is.na(fecha_ci)),
-      by = "nhc"
-    ) |>
-    transmute(
-      record_id,
-      ci = 1,
-      ci_type = 1, # Adult
-      ci_date = fecha_ci,
-      ci_version = 6,
-      ci_options___1 = 1,
-      ci_options___2 = if_else(comparte_con_grupos, 1, NA),
-      ci_options___3 = if_else(comparte_con_registros, 1, NA),
-      ci_options___4 = if_else(consiente_relacionados, 1, NA),
-      ci_opt_pers_data___0 = if_else(!consiente_contacto & is.na(email), 1, NA),
-      ci_opt_pers_data___1 = if_else(!consiente_contacto & !is.na(email), 1, NA),
-      ci_opt_pers_data___2 = if_else(consiente_contacto & !is.na(email), 1, NA),
-      ci_options_assays___0 = if_else(!interesado_ensayos, 1, NA),
-      ci_options_assays___1 = if_else(interesado_ensayos, 1, NA),
-      ci_date_remove = fecha_retirada_ci,
-      ci_update = pmax(fecha_ci, fecha_retirada_ci),
-    ),
-  output_patient_ids |>
-    anti_join(consents |> filter(!is.na(fecha_ci)), by = "nhc") |>
-    transmute(
-      record_id,
-      ci = 0,
-    )
-) |>
-  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer()) |>
-  mutate(consent_complete = 2, .after = everything()) # Complete
+output_consent <- output_patient_ids |>
+  inner_join(
+    consents |> filter(!is.na(fecha_ci)),
+    by = "nhc"
+  ) |>
+  transmute(
+    record_id,
+    ci = 1,
+    ci_type = 1, # Adult
+    ci_date = fecha_ci,
+    ci_version = 6,
+    ci_options___1 = 1,
+    ci_options___2 = if_else(comparte_con_grupos, 1, 0),
+    ci_options___3 = if_else(comparte_con_registros, 1, 0),
+    ci_options___4 = if_else(consiente_relacionados, 1, 0),
+    ci_opt_pers_data___0 = if_else(!consiente_contacto &  is.na(email), 1, 0),
+    ci_opt_pers_data___1 = if_else(!consiente_contacto & !is.na(email), 1, 0),
+    ci_opt_pers_data___2 = if_else( consiente_contacto & !is.na(email), 1, 0),
+    ci_options_assays___0 = if_else(!interesado_ensayos, 1, 0),
+    ci_options_assays___1 = if_else( interesado_ensayos, 1, 0),
+    ci_date_remove = fecha_retirada_ci,
+    ci_update = today(),
+    consent_complete = 2, # Complete
+  ) |>
+  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer())
 
 output_personalinformation <- output_patient_ids |>
   left_join(
@@ -183,12 +178,7 @@ output_personalinformation <- output_patient_ids |>
     hosp_refer_reason = NA,
     pat_derived = NA,
     hosp_deriv_reason = NA,
-    pat_ref_hosp_follow = case_when(
-      !is.na(fecha_exitus) ~ 0,
-      !is.na(fecha_perdida_seguimiento) ~ 0,
-      (fecha_ultima_visita - today()) <= dyears(1) ~ 1,
-      TRUE ~ 98
-    ),
+    pat_ref_hosp_follow = NA,
     personal_update = today(),
     personal_information_complete = 2, # Complete
   )
@@ -202,36 +192,49 @@ output_demographics <- output_patient_ids |>
     ),
     by = "pid"
   ) |>
-  left_join(ufela_clinica |> select(pid, fumador, starts_with("historia_familiar_")), by = "pid") |>
+  left_join(
+    ufela_clinica |>
+      select(pid, fumador, starts_with("historia_familiar_")),
+    by = "pid"
+  ) |>
+  left_join(
+    pals_patients |>
+      select(nhc, pals_visita_inclusion = "visita_inclusion"),
+    by = "nhc"
+  ) |>
+  left_join(
+    pals_ecas |>
+      select(nhc, ecas_education_years = "escolaridad"),
+    by = "nhc"
+  ) |>
   transmute(
     record_id,
-    family_history_dic = if_else(
-      historia_familiar_alzheimer | historia_familiar_parkinson | historia_familiar_motoneurona,
-      1, 0
-    ),
+    family_history_dic = if_else(historia_familiar_motoneurona, 1, 0),
     als_fam_hist_type = if_else(historia_familiar_motoneurona, 1, 2),
     adopted = 98,
     father_alive = NA,
     father_death_cause = NA,
-    father_death_age = NA, # text?
+    father_death_age = NA,
     mother_alive = NA,
     mother_death_cause = NA,
-    mother_death_age = NA, # text?
+    mother_death_age = NA,
     fam_tree = 0,
-    adv_fam = 0,
+    adv_fam = if_else(!is.na(pals_visita_inclusion), 1, 0),
     sex = sexo |> case_match("Hombre" ~ 1, "Mujer" ~ 2, .default = 98),
-    dob = fecha_nacimiento,
     cp_current = codigo_postal,
     res_type_current = NA,
     cp_life = NA,
     res_type_life = NA,
     country_origin = NA,
     province_origin = provincia_nacimiento,
+    #province_origin = str_replace_all(provincia_nacimiento, "[^A-Za-z]", "x"),
+    ethnicity = NA,
     ethnicity_2_yn = NA,
+    ethnicity_2 = NA,
     consanguinity = 98,
     consanguinity_type = NA,
     dominance = NA,
-    smoke = case_match(fumador, 
+    smoke = case_match(fumador,
       "No fumador" ~ 0,
       "Exfumador" ~ 1,
       "Fumador" ~ 2,
@@ -245,18 +248,33 @@ output_demographics <- output_patient_ids |>
     start_alcohol_age = NA,
     end_alcohol_age = NA,
     adv_risk = 0,
-    adv_med_history = 0,
-    educ_level = estudios |> case_match(
-      "No sabe leer ni escribir" ~ 0, # ISCED 0
-      "Primarios incompletos" ~ 0, # ISCED 0
-      "Primarios completos" ~ 1, # ISCED 1
-      "Secundarios (ESO, BUP, COU, etc)" ~ 2, # ISCED 2
-      "FP (grado medio o superior)" ~ 4, # ISCED 4-5
-      "Universidad" ~ 6, # ISCED 6-7
-      "Doctorado" ~ 8, # ISCED 8
-      "Otro" ~ NA,
+    adv_med_history = if_else(!is.na(pals_visita_inclusion), 1, 0),
+    marital = NA,
+    convivence_status = NA,
+    educ_level = coalesce(
+      case_when(
+        is.na(ecas_education_years) ~ NA,
+        ecas_education_years < 6 ~ 0,  # < Primaria
+        ecas_education_years < 10 ~ 1, # Primaria
+        ecas_education_years < 13 ~ 3, # ESO / FP medio
+        ecas_education_years < 15 ~ 5, # FP superior
+        ecas_education_years < 17 ~ 6, # Grado
+        ecas_education_years < 19 ~ 7, # Máster
+        ecas_education_years >= 19 ~ 8 # Doctorado
+      ),
+      estudios |> case_match(
+        "No sabe leer ni escribir" ~ 0, # ISCED 0
+        "Primarios incompletos" ~ 0, # ISCED 0
+        "Primarios completos" ~ 1, # ISCED 1
+        "Secundarios (ESO, BUP, COU, etc)" ~ 3, # ISCED 3
+        "FP (grado medio o superior)" ~ 3, # ISCED 3/5
+        "Universidad" ~ 6, # ISCED 6-7
+        "Doctorado" ~ 8, # ISCED 8
+        "Otro" ~ NA,
+      )
     ),
-    educ_years = NA,
+    educ_old = NA,
+    educ_years = ecas_education_years,
     employ_premorbid = NA,
     net_income_bef_onset = NA,
     income_periods = NA,
@@ -264,18 +282,28 @@ output_demographics <- output_patient_ids |>
       "Trabaja" ~ 1,
       "Parado" ~ 3,
       "Parado con subsidio | Prestación" ~ 3,
+      "Estudiante" ~ 4,
       "Labores de la casa" ~ 5,
       "Jubilado" ~ 6,
       "Incapacitado (o con invalidez permanente)" ~ 7,
       "Otra" ~ 99
     ),
-    employ_current_other = situacion_laboral_actual_otra |> na_if(""),
-    incapacity = coalesce(if_else(situacion_laboral_actual == 7, NA, 0), 98),
+    employ_current_other = NA,
+    incapacity = if_else(situacion_laboral_actual == 7, 1, 0),
     incapacity_type = 98,
-    disability = coalesce(if_else(situacion_laboral_actual == 7, NA, 0), 98),
+    perm_incapacity_date = NA,
+    disability = if_else(situacion_laboral_actual == 7, 1, 0),
+    disability_perc = NA,
+    dependency = 98,
+    dependency_grade = 98,
     previous_jobs = 0,
     demo_update = today(),
-    demographics_complete = 2, # Complete
+    demographics_complete = case_when(
+      !is.na(pals_visita_inclusion) ~ 0, # Incomplete (missing pals data)
+      situacion_laboral_actual_otra != "" ~ 0, # Incomplete (check working status)
+      historia_familiar_motoneurona ~ 1, # Unverified (check fALS status)
+      TRUE ~ 2 # Complete
+    ),
   )
 
 output_clinicaldata <- output_patient_ids |>
@@ -308,7 +336,7 @@ output_clinicaldata <- output_patient_ids |>
         na_if(as_date(Inf)),
       fecha_vmni_22h = pick(fecha_visita, insuficiencia_respiratoria) |>
         filter(insuficiencia_respiratoria <= 1) |>
-        pull(fecha_visita) |> 
+        pull(fecha_visita) |>
         min(na.rm = TRUE) |>
         na_if(as_date(Inf)),
       fecha_iot = pick(fecha_visita, insuficiencia_respiratoria) |>
@@ -495,9 +523,19 @@ output_geneticvariations <- bind_rows(
       genetic_variations_complete = 0, # Incomplete
     ),
 ) |>
-  arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer()) |>
-  mutate(redcap_repeat_instrument = "genetic_variations", genetanaly_update = today(), .after=record_id) |>
-  mutate(redcap_repeat_instance = row_number(), .by = record_id, .after=redcap_repeat_instrument)
+  arrange(
+    record_id |>
+      str_extract("^([0-9]+)-([0-9]+)$", group=2) |>
+      as.integer()
+  ) |>
+  mutate(
+    redcap_repeat_instrument = "genetic_variations",
+    genetanaly_update = today(), .after=record_id
+  ) |>
+  mutate(
+    redcap_repeat_instance = row_number(),
+    .by = record_id, .after=redcap_repeat_instrument
+  )
 
 output_diagnosis <- output_patient_ids |>
   left_join(
@@ -533,11 +571,12 @@ output_diagnosis <- output_patient_ids |>
     initial_diagnosis = parse_phenotype_information(fenotipo_al_diagnostico, fenotipo_al_diagnostico_otro),
     date_diagnosis = fecha_diagnostico_ELA,
     final_diagnosis = case_when(
-      initial_diagnosis %in% c(1, 4) ~ 1,
+      initial_diagnosis == 1 ~ 1,
       initial_diagnosis %in% 2:3 ~ if_else(
         exitus & (fecha_exitus - fecha_inicio_clinica) < dyears(4),
         1, parse_phenotype_information(fenotipo_al_exitus, fenotipo_al_exitus_otro)
-      )
+      ),
+      initial_diagnosis == 4 ~ NA,
     ),
     eer_category = NA,
     gold_coast_crit_yn = if_else(initial_diagnosis %in% c(1, 3), 1, NA),
@@ -550,10 +589,19 @@ output_diagnosis <- output_patient_ids |>
     tms = 0,
     pet = 0,
     rm = 98,
-    genetic_data = if_else(!is.na(resultado_estudio_c9) | !is.na(resultado_estudio_sod1), 1, 0),
-    samples_data = if_else(samples_data_available, 1, 0),
+    genetic_data = if_else(!is.na(resultado_estudio_c9) | !is.na(resultado_estudio_sod1), 1, 0) |> replace_na(0),
+    samples_data = if_else(samples_data_available, 1, 0) |> replace_na(0),
     diagnosis_update = today(),
-    diagnosis_complete = 0, # Incomplete
+    diagnosis_complete = case_when(
+      initial_diagnosis == 1 ~ 2, # Complete
+      initial_diagnosis %in% c(2, 3) ~ if_else(
+        (fecha_exitus - fecha_inicio_clinica) < dyears(4),
+        2, # Complete (final_diagnosis=als)
+        0  # Incomplete (check final phenotype)
+      ),
+      initial_diagnosis == 4 ~ 0, # Incomplete (check final diagnosis)
+      TRUE ~ 2, # Complete
+    )
   )
 
 output_treatment <- output_patient_ids |>
@@ -566,7 +614,7 @@ output_treatment <- output_patient_ids |>
     by = "pid"
   ) |>
   left_join(
-    ufela_alsfrs |> 
+    ufela_alsfrs |>
       select(pid, fecha_visita, insuficiencia_respiratoria) |>
       drop_na() |>
       filter(insuficiencia_respiratoria == 0) |>
@@ -618,7 +666,10 @@ output_alstreatmentdata <- output_patient_ids |>
     als_treatment_data_complete = 2, # Complete
   ) |>
   arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer()) |>
-  mutate(redcap_repeat_instrument = "als_treatment_data", medication_update = today(), .after = record_id) |>
+  mutate(
+    redcap_repeat_instrument = "als_treatment_data",
+    medication_update = today(), .after = record_id
+  ) |>
   mutate(redcap_repeat_instance = row_number(), .by = record_id, .after=redcap_repeat_instrument)
 
 output_alsfrs <- output_patient_ids |>
@@ -776,7 +827,8 @@ output_cognitiveassessment <- output_patient_ids |>
     # ECAS
     nps_cognitive_test___1 = if_else(version != "-", 1, 0),
     ecas_version = case_match(version, "A" ~ 1, "B" ~ 2, "C" ~ 3),
-    ecas_modality = NA,
+    ecas_language = idioma |> case_match("Español" ~ 24),
+    ecas_modality = modo |> case_match("Oral" ~ 1, "Escrito" ~ 2),
     ecas_language_naming = nombrar,
     ecas_language_comprehension = comprension,
     ecas_memory_immediate = recuerdo,
@@ -807,7 +859,7 @@ output_cognitiveassessment <- output_patient_ids |>
 
     # Behavioural (ECAS-CI)
     nps_cognitive_test___3 = if_else(!is.na(total_ec), 1, 0),
-    ecas_beh_total_man = conducta,
+    ecas_beh_total_man = conducta_total,
     psychosis_total_man = psicosis,
 
     # Other (ALS-FTD-Q)
@@ -830,7 +882,7 @@ output_samples <- output_patient_ids |>
   transmute(
     record_id, redcap_repeat_instrument = "samples",
     sample_collection_date = coalesce(fecha_muestra, fecha_donacion_recepcion, fecha_de_entrada),
-    sample_type = case_match(tipo_muestra, 
+    sample_type = case_match(tipo_muestra,
       "04-Líquido Cefalorraquídeo" ~ 3, # CSF
       "08-Plasma" ~ 2, # Serum/Plasma
       "09-Suero" ~ 2, # Serum/Plasma
@@ -893,79 +945,17 @@ output_forms <- list(
   relocate(redcap_repeat_instrument, redcap_repeat_instance, .after = record_id)
 
 readr::write_csv(
-  output_forms |> mutate(across(where(is.Date), ~strftime(.x, "%Y-%m-%d"))),
-  here::here("output", str_glue("redcap-snapshot-{today()}.csv")), na = ""
+  output_patient_ids,
+  here("output", str_glue("redcap-{redcap_site_id}-patient-ids-{today()}.csv")),
+  na = ""
 )
 
-output_geneticstudy |> filter(analy_gene_triplepcr___c9orf72 == 1) |> count()
-output_geneticstudy |> filter(analy_gene_sanger___sod1 == 1) |> count()
-output_geneticstudy |> filter(analy_gene_sanger___tardbp == 1) |> count()
-output_geneticstudy |> filter(analy_gene_sanger___fus == 1) |> count()
-output_geneticstudy |> filter(analy_gene_triplepcr___atxn2 == 1) |> count()
-
-bind_rows(
-  output_geneticstudy |> filter(analy_gene_triplepcr___c9orf72 == 1),
-  output_geneticstudy |> filter(analy_gene_sanger___sod1 == 1),
-  output_geneticstudy |> filter(analy_gene_sanger___tardbp == 1),
-  output_geneticstudy |> filter(analy_gene_sanger___fus == 1),
-  output_geneticstudy |> filter(analy_gene_triplepcr___atxn2 == 1),
-) |>
-  distinct(record_id) |>
-  count()
-
-output_geneticvariations |> filter(gen_gene == "HGNC:28337") |> count() # C9orf72
-output_geneticvariations |> filter(gen_gene == "HGNC:11179") |> count() # SOD1
-output_geneticvariations |> filter(gen_gene == "HGNC:11571") |> count() # TARDBP
-output_geneticvariations |> filter(gen_gene == "HGNC:4010") |> count() # FUS
-output_geneticvariations |> filter(gen_gene == "HGNC:10555") |> count() # ATXN2
-
-bind_rows(
-  output_geneticvariations |> filter(gen_gene == "HGNC:28337"), # C9orf72
-  output_geneticvariations |> filter(gen_gene == "HGNC:11179"), # SOD1
-  output_geneticvariations |> filter(gen_gene == "HGNC:11571"), # TARDBP
-  output_geneticvariations |> filter(gen_gene == "HGNC:4010"), # FUS
-  output_geneticvariations |> filter(gen_gene == "HGNC:10555"), # ATXN2
-) |>
-  distinct(record_id) |>
-  count()
-
-output_samples |> filter(sample_type == 1) |> distinct(record_id) |> count() # DNA
-output_samples |> filter(sample_type == 2) |> distinct(record_id) |> count() # Plasma
-output_samples |> filter(sample_type == 3) |> distinct(record_id) |> count() # CSF
-
-output_samples |>
-  filter(sample_type == 2) |>
-  left_join(output_patient_ids, by = "record_id") |>
-  left_join(ufela_clinica |> select(pid, fecha_inicio_clinica), by = "pid") |>
-  mutate(tiempo_desde_inicio = sample_collection_date - fecha_inicio_clinica) |>
-  summarize(
-    plasma_available_1_2y = any((tiempo_desde_inicio / dmonths(1)) |> between(12, 24)),
-    plasma_available_2_3y = any((tiempo_desde_inicio / dmonths(1)) |> between(24, 36)),
-    plasma_available_3_4y = any((tiempo_desde_inicio / dmonths(1)) |> between(36, 48)),
-    plasma_available_4_5y = any((tiempo_desde_inicio / dmonths(1)) |> between(48, 60)),
-    plasma_available_gt_5y = any((tiempo_desde_inicio / dmonths(1)) > 60),
-    .by = record_id,
-  ) |>
-  summarise(
-    across(starts_with("plasma_available"), ~ sum(.x, na.rm = TRUE))
-  )
-
-output_samples |>
-  filter(sample_type == 2) |>
-  left_join(output_patient_ids, by = "record_id") |>
-  left_join(ufela_clinica |> select(pid, fecha_diagnostico_ELA), by = "pid") |>
-  mutate(tiempo_desde_diagnostico = sample_collection_date - fecha_diagnostico_ELA) |>
-  summarize(
-    plasma_available_0_6m = any((tiempo_desde_diagnostico / dmonths(1)) < 6),
-    plasma_available_6m_1y = any((tiempo_desde_diagnostico / dmonths(1)) |> between( 6, 12)),
-    plasma_available_1_2y = any((tiempo_desde_diagnostico / dmonths(1)) |> between(12, 24)),
-    plasma_available_2_3y = any((tiempo_desde_diagnostico / dmonths(1)) |> between(24, 36)),
-    plasma_available_3_4y = any((tiempo_desde_diagnostico / dmonths(1)) |> between(36, 48)),
-    plasma_available_4_5y = any((tiempo_desde_diagnostico / dmonths(1)) |> between(48, 60)),
-    plasma_available_gt_5y = any((tiempo_desde_diagnostico / dmonths(1)) > 60),
-    .by = record_id,
-  ) |>
-  summarise(
-    across(starts_with("plasma_available"), ~ sum(.x, na.rm = TRUE))
-  ) |>
-  t()
+readr::write_csv(
+  output_forms |>
+    mutate(
+      across(where(is.character) & -matches("mail"), ~str_replace_all(.x, "@", "|")),
+      across(where(is.timepoint), ~strftime(.x, "%Y-%m-%d"))
+    ),
+  file = here("output", str_glue("redcap-{redcap_site_id}-snapshot-{today()}.csv")),
+  na = ""
+)
