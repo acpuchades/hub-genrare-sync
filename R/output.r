@@ -65,15 +65,14 @@ output_patient_ids_allocated <- readr::read_csv(genrare_patient_ids_path) |>
   janitor::clean_names()
 
 output_patients_ci <- consents |>
-  filter(!is.na(fecha_ci)) |>
-  select(nhc) |>
-  drop_na()
+  drop_na(nhc, fecha_ci) |>
+  select(nhc)
 
 output_patients_dead <- ufela_pacientes |>
   filter(exitus | !is.na(fecha_exitus)) |>
   left_join(ufela_clinica |> select(pid, starts_with("fenotipo_")), by = "pid") |>
   filter(fenotipo_al_diagnostico != "Otro" | !str_detect(fenotipo_al_diagnostico_otro,
-    "AME|ATAXIA|ATROFIA MUSCULAR ESPINAL|FEWDON|IBP|KENNEDY|MG|NO ELA|PARAPARESIA|POSTPOLIO"
+    "AME|ATAXIA|ATROFIA MUSCULAR ESPINAL|FEWDON|KENNEDY|MG|NO ELA|PARAPARESIA|POSTPOLIO"
   )) |>
   select(nhc) |>
   drop_na()
@@ -103,6 +102,7 @@ output_patient_ids <- output_patient_ids_allocated |>
   arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer())
 
 output_status <- output_patient_ids |>
+  filter(!(record_id %in% output_tofersen_study_ids)) |>
   left_join(consents, by = "nhc") |>
   inner_join(
     ufela_pacientes |>
@@ -127,8 +127,8 @@ output_status <- output_patient_ids |>
     status_update = today(),
     seed_project = if_else(!is.na(seed_als), 1, 0),
     status_complete = if_else(
-      exitus,
-      0, # Incomplete (missing death info)
+      is.na(exitus) | exitus,
+      1, # Unverified (missing death info)
       2  # Complete
     )
   )
@@ -160,6 +160,7 @@ output_consent <- output_patient_ids |>
   arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer())
 
 output_personalinformation <- output_patient_ids |>
+  filter(!(record_id %in% output_tofersen_study_ids)) |>
   left_join(
     consents |> select(nhc, email, fecha_perdida_seguimiento),
     by = "nhc"
@@ -184,6 +185,7 @@ output_personalinformation <- output_patient_ids |>
   )
 
 output_demographics <- output_patient_ids |>
+  filter(!(record_id %in% output_tofersen_study_ids)) |>
   left_join(
     ufela_pacientes |> select(
       pid, sexo, fecha_nacimiento, provincia_nacimiento,
@@ -221,7 +223,10 @@ output_demographics <- output_patient_ids |>
     fam_tree = 0,
     adv_fam = if_else(!is.na(pals_visita_inclusion), 1, 0),
     sex = sexo |> case_match("Hombre" ~ 1, "Mujer" ~ 2, .default = 98),
-    cp_current = codigo_postal,
+    cp_current = if_else(
+      codigo_postal |> str_detect("^[0-9]+$"), # assumes ES type zipcodes
+      codigo_postal, NA_character_
+    ),
     res_type_current = NA,
     cp_life = NA,
     res_type_life = NA,
@@ -307,6 +312,7 @@ output_demographics <- output_patient_ids |>
   )
 
 output_clinicaldata <- output_patient_ids |>
+  filter(!(record_id %in% output_tofersen_study_ids)) |>
   left_join(
     ufela_clinica |> select(
       pid, fecha_inicio_clinica, fecha_diagnostico_ELA,
@@ -316,7 +322,8 @@ output_clinicaldata <- output_patient_ids |>
   ) |>
   left_join(
     ufela_nutri |> select(
-      pid, fecha_basal_nutri = "fecha_visita", estatura, peso, imc_actual, peso_premorbido, fecha_peso_premorbido
+      pid, fecha_basal_nutri = "fecha_visita", estatura, peso,
+      imc_actual, peso_premorbido, fecha_peso_premorbido
     ),
     by = join_by(pid, closest(fecha_diagnostico_ELA <= fecha_basal_nutri))
   ) |>
@@ -427,6 +434,7 @@ output_clinicaldata <- output_patient_ids |>
 
 output_geneticstudy <- bind_rows(
   output_patient_ids |>
+    filter(!(record_id %in% output_tofersen_study_ids)) |>
     inner_join(ufela_clinica |> select(pid, starts_with("estudio_genetico_")), by = "pid") |>
     filter(estudio_genetico_c9 | estudio_genetico_atxn2 | estudio_genetico_ar) |>
     transmute(
@@ -437,6 +445,7 @@ output_geneticstudy <- bind_rows(
       analy_gene_triplepcr___c9orf72 = if_else(estudio_genetico_c9, 1, 0),
     ),
   output_patient_ids |>
+    filter(!(record_id %in% output_tofersen_study_ids)) |>
     inner_join(ufela_clinica |> select(pid, starts_with("estudio_genetico_")), by = "pid") |>
     filter(estudio_genetico_sod1 | estudio_genetico_fus | estudio_genetico_tardbp | estudio_genetico_unc13a) |>
     transmute(
@@ -455,6 +464,7 @@ output_geneticstudy <- bind_rows(
 
 output_geneticvariations <- bind_rows(
   output_patient_ids |>
+    filter(!(record_id %in% output_tofersen_study_ids)) |>
     inner_join(ufela_clinica |> select(pid, resultado_estudio_c9), by = "pid") |>
     filter(resultado_estudio_c9 == "Alterado") |>
     transmute(
@@ -467,6 +477,7 @@ output_geneticvariations <- bind_rows(
       genetic_variations_complete = 2, # Complete
     ),
   output_patient_ids |>
+    filter(!(record_id %in% output_tofersen_study_ids)) |>
     inner_join(
       ufela_clinica |>
         select(pid, resultado_estudio_atxn2, starts_with("numero_repeticiones_atxn2_")),
@@ -483,6 +494,7 @@ output_geneticvariations <- bind_rows(
       genetic_variations_complete = 2, # Complete
     ),
   output_patient_ids |>
+    filter(!(record_id %in% output_tofersen_study_ids)) |>
     inner_join(ufela_clinica |> select(pid, resultado_estudio_sod1), by = "pid") |>
     filter(resultado_estudio_sod1 == "Alterado") |>
     transmute(
@@ -493,6 +505,7 @@ output_geneticvariations <- bind_rows(
       genetic_variations_complete = 0, # Incomplete
     ),
   output_patient_ids |>
+    filter(!(record_id %in% output_tofersen_study_ids)) |>
     inner_join(ufela_clinica |> select(pid, resultado_estudio_tardbp), by = "pid") |>
     filter(resultado_estudio_tardbp == "Alterado") |>
     transmute(
@@ -503,6 +516,7 @@ output_geneticvariations <- bind_rows(
       genetic_variations_complete = 0, # Incomplete
     ),
   output_patient_ids |>
+    filter(!(record_id %in% output_tofersen_study_ids)) |>
     inner_join(ufela_clinica |> select(pid, resultado_estudio_fus), by = "pid") |>
     filter(resultado_estudio_fus == "ALTERADO") |>
     transmute(
@@ -513,6 +527,7 @@ output_geneticvariations <- bind_rows(
       genetic_variations_complete = 0, # Incomplete
     ),
   output_patient_ids |>
+    filter(!(record_id %in% output_tofersen_study_ids)) |>
     inner_join(ufela_clinica |> select(pid, resultado_estudio_unc13a), by = "pid") |>
     filter(resultado_estudio_unc13a == "Alterado") |>
     transmute(
@@ -538,6 +553,7 @@ output_geneticvariations <- bind_rows(
   )
 
 output_diagnosis <- output_patient_ids |>
+  filter(!(record_id %in% output_tofersen_study_ids)) |>
   left_join(
     ufela_pacientes |> select(pid, exitus, fecha_exitus),
     by = "pid"
@@ -605,6 +621,7 @@ output_diagnosis <- output_patient_ids |>
   )
 
 output_treatment <- output_patient_ids |>
+  filter(!(record_id %in% output_tofersen_study_ids)) |>
   left_join(ufela_clinica |> select(pid, riluzol), by = "pid") |>
   left_join(
     ufela_respi |> summarize(
@@ -656,6 +673,7 @@ output_treatment <- output_patient_ids |>
   )
 
 output_alstreatmentdata <- output_patient_ids |>
+  filter(!(record_id %in% output_tofersen_study_ids)) |>
   left_join(ufela_clinica |> select(pid, riluzol, fecha_inicio_riluzol), by = "pid") |>
   filter(riluzol) |>
   transmute(
@@ -946,7 +964,7 @@ output_forms <- list(
 
 readr::write_csv(
   output_patient_ids,
-  here("output", str_glue("redcap-{redcap_site_id}-patient-ids-{today()}.csv")),
+  here("output", str_glue("{today()}-redcap-{redcap_site_id}-patient-ids.csv")),
   na = ""
 )
 
@@ -956,6 +974,6 @@ readr::write_csv(
       across(where(is.character) & -matches("mail"), ~str_replace_all(.x, "@", "|")),
       across(where(is.timepoint), ~strftime(.x, "%Y-%m-%d"))
     ),
-  file = here("output", str_glue("redcap-{redcap_site_id}-snapshot-{today()}.csv")),
+  file = here("output", str_glue("{today()}-redcap-{redcap_site_id}-snapshot.csv")),
   na = ""
 )
