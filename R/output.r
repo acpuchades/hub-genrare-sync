@@ -104,7 +104,7 @@ output_patient_ids <- output_patient_ids_allocated |>
 output_status <- output_patient_ids |>
   filter(!(record_id %in% output_tofersen_study_ids)) |>
   left_join(consents, by = "nhc") |>
-  inner_join(
+  left_join(
     ufela_pacientes |>
       select(nhc, exitus, fecha_nacimiento, fecha_exitus),
     by = "nhc"
