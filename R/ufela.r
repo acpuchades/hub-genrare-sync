@@ -8,6 +8,7 @@ ufela_db = DBI::dbConnect(RSQLite::SQLite(), ufela_db_path)
 ufela_pacientes = DBI::dbGetQuery(ufela_db, "SELECT * FROM pacientes") |>
   rows_update(tibble(pid = "43c5588a-fea1-11ef-823b-3b027ebef8ae", fecha_nacimiento = "04-02-1984"), by = "pid") |>
   rows_update(tibble(pid = "c2ab61d6-fddd-11ef-beed-edbe42534d56", fecha_nacimiento = "29-11-1946"), by = "pid") |>
+  rows_update(tibble(pid = "dea43e4a-596c-11eb-9950-239b631e5519", exitus = "Sí", fecha_exitus = "29-07-2024"), by = "pid") |>
   mutate(
     across(nhc, as.integer),
     across(starts_with("fecha_"), lubridate::dmy),

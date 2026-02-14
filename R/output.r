@@ -232,7 +232,6 @@ output_demographics <- output_patient_ids |>
     res_type_life = NA,
     country_origin = NA,
     province_origin = provincia_nacimiento,
-    #province_origin = str_replace_all(provincia_nacimiento, "[^A-Za-z]", "x"),
     ethnicity = NA,
     ethnicity_2_yn = NA,
     ethnicity_2 = NA,
@@ -304,8 +303,8 @@ output_demographics <- output_patient_ids |>
     previous_jobs = 0,
     demo_update = today(),
     demographics_complete = case_when(
-      !is.na(pals_visita_inclusion) ~ 0, # Incomplete (missing pals data)
-      situacion_laboral_actual_otra != "" ~ 0, # Incomplete (check working status)
+      !is.na(pals_visita_inclusion) ~ 1, # Unverified (missing pals data)
+      situacion_laboral_actual_otra != "" ~ 1, # Unverified (check working status)
       historia_familiar_motoneurona ~ 1, # Unverified (check fALS status)
       TRUE ~ 2 # Complete
     ),
@@ -395,10 +394,10 @@ output_clinicaldata <- output_patient_ids |>
     als_symp_bulbar___3 = if_else(fenotipo_al_diagnostico %in% c("ELA Bulbar", "Parálisis bulbar progresiva"), 1, 0),
     als_symp_spinal___6 = if_else(fenotipo_al_diagnostico == "Flail arm", 1, 0),
     als_symp_spinal___7 = if_else(fenotipo_al_diagnostico == "Flail leg", 1, 0),
-    #als_symp_spinal___8 = if_else(fenotipo_al_diagnostico %in% c(
-    #  "ELA Espinal", "Monomiélica", "Hemipléjica (Mills)", "Pseudopolineurítica"
-    #), 1, 0),
-    #als_symp_resp___3 = if_else(fenotipo_al_diagnostico == "ELA Respiratoria", 1, 0),
+    als_symp_spinal___8 = if_else(fenotipo_al_diagnostico %in% c(
+      "ELA Espinal", "Monomiélica", "Hemipléjica (Mills)", "Pseudopolineurítica"
+    ), 1, 0),
+    als_symp_resp___3 = if_else(fenotipo_al_diagnostico == "ELA Respiratoria", 1, 0),
     orpha_code = NA,
     als_symp_other_old___1 = if_else(fenotipo_al_diagnostico == "Otro", 1, 0),
     height = estatura,
@@ -613,9 +612,9 @@ output_diagnosis <- output_patient_ids |>
       initial_diagnosis %in% c(2, 3) ~ if_else(
         (fecha_exitus - fecha_inicio_clinica) < dyears(4),
         2, # Complete (final_diagnosis=als)
-        0  # Incomplete (check final phenotype)
+        1  # Unverified (check final phenotype)
       ),
-      initial_diagnosis == 4 ~ 0, # Incomplete (check final diagnosis)
+      initial_diagnosis == 4 ~ 1, # Unverified (check final diagnosis)
       TRUE ~ 2, # Complete
     )
   )
