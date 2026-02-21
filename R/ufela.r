@@ -80,9 +80,20 @@ ufela_alsfrs = DBI::dbGetQuery(ufela_db, "SELECT * FROM esc_val_ela") |>
   rename(fecha_visita = fecha_visita_esc_val_ela) |>
   mutate(
     across(starts_with("fecha_"), lubridate::dmy),
-    across(lenguaje:insuficiencia_respiratoria,
-      ~ ifelse(.x |> na_if("NS/NC") |> as.integer() |> between(0, 4), as.integer(.x), NA_integer_)),
-    across(kings, ~ ifelse(.x |> na_if("NS/NC") |> as.integer() |> between(0, 4), as.integer(.x), NA_integer_)),
+    across(
+      lenguaje:insuficiencia_respiratoria,
+      ~ if_else(
+        .x |> na_if("NS/NC") |> as.integer() |> between(0, 4),
+        as.integer(.x), NA_integer_
+      )
+    ),
+    across(
+      kings,
+      ~ if_else(
+        .x |> na_if("NS/NC") |> as.integer() |> between(0, 4),
+        as.integer(.x), NA_integer_
+      )
+    ),
     cortar = case_when(
       is.na(cortar_con_peg) & !is.na(cortar_sin_peg) ~ cortar_sin_peg,
       !is.na(cortar_con_peg) & is.na(cortar_sin_peg) ~ cortar_con_peg,
