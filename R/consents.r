@@ -1,6 +1,5 @@
-library(here)
-
-consents_path <- here('data', 'GENRARE 2026-01-09.xlsx')
+data_dir <- here::here('data', '20260221')
+consents_path <- file.path(data_dir, 'Pacientes GENRARE.xlsx')
 
 consents <- readxl::read_excel(consents_path) |>
   janitor::clean_names() |>

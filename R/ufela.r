@@ -2,7 +2,8 @@ library(dplyr)
 library(tibble)
 library(tidyr)
 
-ufela_db_path <- here::here('data', 'formulario_2025-10-10.sqlite')
+data_dir <- here::here('data', '20260221')
+ufela_db_path <- file.path(data_dir, 'formulario.sqlite')
 ufela_db = DBI::dbConnect(RSQLite::SQLite(), ufela_db_path)
 
 ufela_pacientes = DBI::dbGetQuery(ufela_db, "SELECT * FROM pacientes") |>

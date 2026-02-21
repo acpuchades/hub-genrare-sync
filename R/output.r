@@ -18,7 +18,8 @@ output_tofersen_study_ids <- c(
   "1196-6", "1196-7", "1196-8", "1196-9"
 )
 
-genrare_patient_ids_path <- here("data", "genrare-patient-ids-2025-10-23.csv")
+data_dir <- here("data", "20260221")
+genrare_patient_ids_path <- file.path(data_dir, "genrare-patient-ids.csv")
 
 parse_phenotype_information <- function(phenotype, phenotype_other, als=1, umn=2, lmn=3, fosmn=4) {
   case_match(phenotype,
@@ -961,9 +962,12 @@ output_forms <- list(
   arrange(record_id |> str_extract("^([0-9]+)-([0-9]+)$", group=2) |> as.integer()) |>
   relocate(redcap_repeat_instrument, redcap_repeat_instance, .after = record_id)
 
+output_dir <- here("output", "20260221")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
 readr::write_csv(
   output_patient_ids,
-  here("output", str_glue("{today()}-redcap-{redcap_site_id}-patient-ids.csv")),
+  file.path(output_dir, str_glue("redcap-{redcap_site_id}-patient-ids.csv")),
   na = ""
 )
 
@@ -973,6 +977,6 @@ readr::write_csv(
       across(where(is.character) & -matches("mail"), ~str_replace_all(.x, "@", "|")),
       across(where(is.timepoint), ~strftime(.x, "%Y-%m-%d"))
     ),
-  file = here("output", str_glue("{today()}-redcap-{redcap_site_id}-snapshot.csv")),
+  file = file.path(output_dir, str_glue("redcap-{redcap_site_id}-snapshot.csv")),
   na = ""
 )

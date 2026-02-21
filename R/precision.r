@@ -1,7 +1,7 @@
 library(dplyr)
-library(here)
 
-pals_info_path <- here("data", "Pacientes P-ALS 2026-01-09.xlsx")
+data_dir <- here::here("data", "20260221")
+pals_info_path <- file.path(data_dir, "Pacientes P-ALS.xlsx")
 
 pals_patients <- readxl::read_excel(
   pals_info_path, sheet = "Pacientes", na = c("", "N/A")
