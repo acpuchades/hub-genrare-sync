@@ -131,8 +131,8 @@ redcap_last_record_id <- coalesce(
     max(), 0
 )
 
-output_patient_ids_unallocated <- output_patients_ci |>
-  full_join(output_patients_dead, by = "nhc") |>
+output_patient_ids_unallocated <- output_patients_dead |>
+  full_join(output_patients_ci, by = "nhc") |>
   anti_join(output_patient_ids_allocated, by = "nhc") |>
   left_join(
     ufela_pacientes |>
@@ -605,10 +605,14 @@ output_diagnosis <- output_patient_ids |>
     by = "pid"
   ) |>
   left_join(
-    biobanco_muestras |> summarize(
-      samples_data_available = TRUE,
-      .by = "nhc"
-    ),
+    bind_rows(
+      biobanco_muestras_ela |> select(nhc),
+      biobanco_muestras_pals |> select(nhc)
+    ) |>
+      summarize(
+        samples_data_available = TRUE,
+        .by = "nhc"
+      ),
     by = "nhc"
   ) |>
   transmute(
@@ -906,37 +910,52 @@ output_cognitiveassessment <- output_patient_ids |>
     cognitive_assessment_complete = 2 # Complete
   )
 
-output_samples <- output_patient_ids |>
-  inner_join(
-    biobanco_muestras |>
-      select(
-        nhc, codigo_muestra_noray_banks, fecha_muestra,
-        fecha_de_entrada, fecha_donacion_recepcion, tipo_muestra
+output_samples <- bind_rows(
+  output_patient_ids |>
+    inner_join(
+      biobanco_muestras_ela,
+      by = "nhc", relationship = "one-to-many"
+    ) |>
+    transmute(
+      record_id,
+      sample_collection_date = coalesce(
+        fecha_muestra, fecha_donacion_recepcion, fecha_de_entrada
       ),
-    by = "nhc", relationship = "one-to-many"
-  ) |>
-  transmute(
-    record_id,
-    sample_collection_date = coalesce(
-      fecha_muestra, fecha_donacion_recepcion, fecha_de_entrada
+      sample_type = tipo_muestra |> case_match(
+        "04-Líquido Cefalorraquídeo" ~ 3, # CSF
+        "08-Plasma" ~ 2,                  # Serum/Plasma
+        "09-Suero" ~ 2,                   # Serum/Plasma
+        "13-ADN" ~ 1,                     # DNA
+        "Pellet" ~ 1,                     # DNA
+        "11-Buffy coat" ~ 1,              # DNA
+        "Plasma Litio" ~ 2,               # Serum/Plasma
+        "01a-Sangre EDTA" ~ 2,            # Serum/Plasma
+        "05-Orina" ~ 4,                   # Urine
+        "02-Sangre ocre" ~ 2,             # Serum/Plasma
+        .default = 99                     # Other
+      ),
+      biobank_code = codigo_muestra_noray_banks
     ),
-    sample_type = case_match(tipo_muestra,
-      "04-Líquido Cefalorraquídeo" ~ 3, # CSF
-      "08-Plasma" ~ 2,                  # Serum/Plasma
-      "09-Suero" ~ 2,                   # Serum/Plasma
-      "13-ADN" ~ 1,                     # DNA
-      "Pellet" ~ 1,                     # DNA
-      "11-Buffy coat" ~ 1,              # DNA
-      "Plasma Litio" ~ 2,               # Serum/Plasma
-      "01a-Sangre EDTA" ~ 2,            # Serum/Plasma
-      "05-Orina" ~ 4,                   # Urine
-      "02-Sangre ocre" ~ 2,             # Serum/Plasma
-      .default = 99                     # Other
-    ),
+  output_patient_ids |>
+    inner_join(
+      biobanco_muestras_pals,
+      by = "nhc", relationship = "one-to-many"
+    ) |>
+    transmute(
+      record_id,
+      sample_collection_date = data_obtencio,
+      sample_type = tipus_de_mostra |> case_match(
+        c("SÈRUM", "PLASMA") ~ 2, # Serum/Plasma
+        "LCR" ~ 3,                # CSF
+        .default = 99             # Other
+      ),
+      biobank_code = codi_mostra
+    )
+) |>
+  mutate(
     sample_storage = 1, # Biobank
     biobank_name = "HUB-ICO-IDIBELL Biobank",
     biobank_link = "https://idibell.cat/en/services/scientific-and-technical-services/biobank/",
-    biobank_code = codigo_muestra_noray_banks,
     spl_update = today(),
     samples_complete = 2 # Complete
   ) |>
