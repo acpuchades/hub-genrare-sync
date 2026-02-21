@@ -48,6 +48,8 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 
-# Project folders
-data/
+# Direnv
+.direnv/
+
+# Output files
 output/
