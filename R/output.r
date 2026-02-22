@@ -516,7 +516,7 @@ output_geneticvariations <- bind_rows(
       gen_alle1_cnv_n = 999, # Repeated expansion
       gen_alle1_fx = 4, # Pathogenic
       clin_criteria = 1, # Yes
-      genetic_variations_complete = 2, # Complete
+      genetic_variations_complete = 2 # Complete
     ),
   output_patient_ids |>
     filter(!(record_id %in% output_tofersen_study_ids)) |>
@@ -533,7 +533,7 @@ output_geneticvariations <- bind_rows(
       gen_alle1_cnv_n = numero_repeticiones_atxn2_a1,
       gen_alle2_cnv_n = numero_repeticiones_atxn2_a2,
       clin_criteria = 1, # Yes
-      genetic_variations_complete = 2, # Complete
+      genetic_variations_complete = 2 # Complete
     ),
   output_patient_ids |>
     filter(!(record_id %in% output_tofersen_study_ids)) |>
@@ -544,7 +544,7 @@ output_geneticvariations <- bind_rows(
       gen_gene = "HGNC:11179", # SOD1
       gen_alle1_var_typ_2 = 1, # SNV
       clin_criteria = 98, # Unknown
-      genetic_variations_complete = 0, # Incomplete
+      genetic_variations_complete = 1 # Unverified
     ),
   output_patient_ids |>
     filter(!(record_id %in% output_tofersen_study_ids)) |>
@@ -555,7 +555,7 @@ output_geneticvariations <- bind_rows(
       gen_gene = "HGNC:11571", # TARDBP
       gen_alle1_var_typ_2 = 1, # SNV
       clin_criteria = 98, # Unknown
-      genetic_variations_complete = 0, # Incomplete
+      genetic_variations_complete = 1 # Unverified
     ),
   output_patient_ids |>
     filter(!(record_id %in% output_tofersen_study_ids)) |>
@@ -566,7 +566,7 @@ output_geneticvariations <- bind_rows(
       gen_gene = "HGNC:4010", # FUS
       gen_alle1_var_typ_2 = 1, # SNV
       clin_criteria = 98, # Unknown
-      genetic_variations_complete = 0, # Incomplete
+      genetic_variations_complete = 1 # Unverified
     ),
   output_patient_ids |>
     filter(!(record_id %in% output_tofersen_study_ids)) |>
@@ -577,7 +577,7 @@ output_geneticvariations <- bind_rows(
       gen_gene = "HGNC:23150", # UNC13A
       gen_alle1_var_typ_2 = 1, # SNV
       clin_criteria = 98, # Unknown
-      genetic_variations_complete = 0, # Incomplete
+      genetic_variations_complete = 1 # Unverified
     ),
 ) |>
   mutate(genetanaly_update = today())
@@ -617,7 +617,9 @@ output_diagnosis <- output_patient_ids |>
   ) |>
   transmute(
     record_id,
-    initial_diagnosis = parse_phenotype_information(fenotipo_al_diagnostico, fenotipo_al_diagnostico_otro),
+    initial_diagnosis = parse_phenotype_information(
+      fenotipo_al_diagnostico, fenotipo_al_diagnostico_otro
+    ),
     date_diagnosis = fecha_diagnostico_ELA,
     final_diagnosis = case_when(
       initial_diagnosis == 1 ~ 1,
@@ -642,14 +644,10 @@ output_diagnosis <- output_patient_ids |>
     samples_data = if_else(samples_data_available, 1, 0) |> replace_na(0),
     diagnosis_update = today(),
     diagnosis_complete = case_when(
-      initial_diagnosis == 1 ~ 2, # Complete
-      initial_diagnosis %in% c(2, 3) ~ if_else(
-        (fecha_exitus - fecha_inicio_clinica) < dyears(4),
-        2, # Complete (final_diagnosis=als)
-        1  # Unverified (check final phenotype)
-      ),
-      initial_diagnosis == 4 ~ 1, # Unverified (check final diagnosis)
-      TRUE ~ 2, # Complete
+      initial_diagnosis == 1 ~ 2,
+      initial_diagnosis == 4 ~ 2,
+      exitus & (fecha_exitus - fecha_inicio_clinica) < dyears(4) ~ 2,
+      .default = 1
     )
   )
 
