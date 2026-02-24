@@ -12,8 +12,8 @@ source("R/consents.r")
 source("R/precision.r")
 source("R/ufela.r")
 
-#redcap_site_id <- "1196"
-redcap_site_id <- "1939"
+redcap_output_mode <- Sys.getenv("REDCAP_MODE", "prod")
+redcap_site_id <- if (redcap_output_mode == "test") "1939" else "1196"
 
 output_tofersen_study_ids <- c(
   "1196-6", "1196-7", "1196-8", "1196-9"
@@ -959,7 +959,7 @@ output_samples <- bind_rows(
   ) |>
   arrange(sample_collection_date, sample_type, biobank_code)
 
-output_dir <- here("output", str_glue("20260221-{redcap_site_id}"))
+output_dir <- here("output", str_glue("20260221-{redcap_output_mode}"))
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
 output_patient_ids |>
