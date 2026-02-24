@@ -607,7 +607,7 @@ output_diagnosis <- output_patient_ids |>
   left_join(
     bind_rows(
       biobanco_muestras_ela |> select(nhc),
-      biobanco_muestras_pals |> select(nhc)
+      biobanco_muestras_pals |> select(nhc = "nhc_dni")
     ) |>
       summarize(
         samples_data_available = TRUE,
@@ -937,7 +937,7 @@ output_samples <- bind_rows(
   output_patient_ids |>
     inner_join(
       biobanco_muestras_pals,
-      by = "nhc", relationship = "one-to-many"
+      by = c(nhc = "nhc_dni"), relationship = "one-to-many"
     ) |>
     transmute(
       record_id,
