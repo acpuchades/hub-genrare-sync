@@ -50,6 +50,3 @@ rsconnect/
 
 # Direnv
 .direnv/
-
-# Output files
-output/
